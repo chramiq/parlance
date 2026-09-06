@@ -1,0 +1,7 @@
+.venv/
+.env
+var/
+*.apkg
+__pycache__/
+.ruff_cache/
+.pytest_cache/
