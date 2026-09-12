@@ -8,7 +8,6 @@ from pydantic_ai import UsageLimitExceeded, UsageLimits
 
 from . import store, worklist
 from .agent import LANG_NAMES, Deps, build_agent
-from .cognates import mark_free_cognates
 from .config import get_settings
 
 app = typer.Typer(no_args_is_help=True)
@@ -87,18 +86,14 @@ def generate(count: int = 20, batch: int = 15, max_requests: int = 60):
     """
     s = get_settings()
     submitted = 0
+    skip_clause = (
+        " Cognate skipping is ENABLED for this run: for lemmas whose similar_known word "
+        "means the SAME thing in your judgment, set_statuses them skipped with a reason "
+        "instead of writing cards. Different meaning = false friend = full card with a note."
+        if s.skip_free_cognates
+        else ""
+    )
     with closing(store.connect(s.db_path)) as conn:
-        if s.skip_free_cognates:
-            from .cognates import ff_guard
-
-            if not ff_guard(s.target_lang, s.known_lang):
-                typer.echo(
-                    f"warning: no false-friend guard file for {s.target_lang}->{s.known_lang}; "
-                    f"auto-skip may wrongly skip trap words "
-                    f"(add parlance/data/false_friends_{s.target_lang}_{s.known_lang}.json)"
-                )
-            skipped = mark_free_cognates(conn, target_lang=s.target_lang, known_lang=s.known_lang)
-            typer.echo(f"free cognates skipped ({len(skipped)}): {', '.join(skipped[:50])}")
         agent = build_agent(s, s.db_path)
         while submitted < count:
             before = _content_count(conn)
@@ -106,7 +101,7 @@ def generate(count: int = 20, batch: int = 15, max_requests: int = 60):
             try:
                 result = agent.run_sync(
                     f"Submit {remaining} new vocabulary cards following your "
-                    f"instructions, then report.",
+                    f"instructions, then report." + skip_clause,
                     deps=Deps(db_path=s.db_path, model_name=s.litellm_model or "unknown"),
                     usage_limits=UsageLimits(request_limit=max_requests),
                 )

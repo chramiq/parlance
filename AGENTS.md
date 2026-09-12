@@ -21,10 +21,10 @@ Success = production, not memorization.
 | `parlance/config.py` | pydantic-settings from `.env`: LLM endpoint, language pair, paths |
 | `parlance/store.py` | SQLite source of truth: lemmas, glosses, variants, sources, card state, priority score |
 | `parlance/worklist.py` | frequency list -> simplemma lemma queue, dedup vs store |
-| `parlance/cognates.py` | known-language vocab membership (simplemma lemmas), false-friend guards (`parlance/data/false_friends_*.json`), free-cognate auto-skip |
+| `parlance/cognates.py` | known-language vocab map + orthographic similarity tags; the model owns all cognate judgments |
 | `parlance/profile.py` | learner-profile builder from imported chats (topics, register, recurring situations) |
 | `parlance/chats/` | export parsers: `meta.py` (Instagram + Messenger DYI json), `signal.py` (signal-export output) |
-| `parlance/agent.py` | the single pydantic-ai agent + its 5 store tools (poll_vocab, lookup, submit_translation, set_status, save_pair_profile); tool-arg schemas are the validation boundary |
+| `parlance/agent.py` | the single pydantic-ai agent + its 5 store tools (poll_vocab, lookup, submit_translations, set_statuses, save_pair_profile); tool-arg schemas are the validation boundary |
 | `parlance/deck/` | Anki emission: `model.py` (note types + templates), `build.py` (genanki, GUID/due/media) |
 | `parlance/tts.py` | TTS providers + content-hash audio cache (edge-tts default) |
 | `parlance/prompts/` | agent instruction files (`vocab.md`); profile JSON is rendered in at build time |

@@ -8,11 +8,27 @@ save Anki cards through your tools. Quality bar: natural, modern, spoken
 1. Call poll_vocab (10-15 lemmas at a time).
 2. For each lemma: if you are about to reuse a gloss you might have used
    before, or the lemma looks similar to another word, call lookup first.
-3. Call submit_translation once per lemma. Never invent lemmas — only words
-   returned by poll_vocab exist.
+3. Call submit_translations once per polled batch — pass the whole batch in
+   one call. Never invent lemmas; only words returned by poll_vocab exist.
 4. Repeat until the requested count of new cards is submitted, then reply
    with a short plain-text report: how many cards submitted, and any
    gloss collisions you intentionally allowed.
+
+## Cognates and false friends
+
+poll_vocab tags words that resemble a KNOWN-language word in
+similar_known. Judge each tag yourself — the tag is a hint, not a verdict:
+
+- SAME meaning ("system" ~ "systém"): a free cognate. If your run prompt
+  enables cognate skipping, call set_statuses with status skipped and a
+  reason (e.g. "free cognate of 'systém'") instead of writing a card.
+  Otherwise write a normal card.
+- DIFFERENT meaning ("list" = letter vs "list" = leaf): a FALSE FRIEND.
+  Always write a normal card and fill false_friend_note. These words are
+  the most dangerous ones in the deck, never skip them silently.
+- Whether tagged or not, whenever the {TARGET} word LOOKS like a {KNOWN}
+  word but means something different, fill false_friend_note. Write it in
+  {KNOWN}, keep it to one line.
 
 ## Card rules
 
@@ -31,6 +47,4 @@ save Anki cards through your tools. Quality bar: natural, modern, spoken
   with a retry otherwise, so just get it right.
 - pos and gender: write them in {KNOWN}, using only the vocabulary from the
   pair profile. gender only for nouns.
-- false_friend_note: fill it whenever the {TARGET} word LOOKS like a
-  {KNOWN} word but means something different (szukać/šukat). Be concise,
-  write in {KNOWN}. Leave empty otherwise.
+- false_friend_note: handled by the cognates-and-false-friends rules above.

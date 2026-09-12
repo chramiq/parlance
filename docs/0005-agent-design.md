@@ -35,17 +35,23 @@ already has, and every restart needs code to re-derive "where was I".
 - `lookup(text, where)` — one scoped search over lemmas, corpus forms,
   submitted glosses, or all; returns the full previous card payload on an
   exact lemma hit. This is the dictionary that prevents overlap.
-- `submit_translation(draft)` — the upsert for one Anki card. Arguments are
-  a pydantic `TranslationDraft` (variants 1–4, `preferred` index into them,
-  examples 1–3 with cloze, false-friend note). Validation is layered:
-  pydantic shape checks run for free, semantic rules (sentence contains
-  exactly one corpus form of the lemma; cloze is mechanically derived from
-  the sentence; multiple examples must each name their sense — the polysemy
-  guarantee) raise `ModelRetry`, so the model rewrites its own invalid card
-  immediately. Gloss collisions are returned as plain warnings, never
-  rejections — true synonyms exist. Editing == submit again for the same
-  lemma: upsert, journaled, model-stamped.
-- `set_status(lemma, status)` — lifecycle (retire bad cards).
+- `submit_translations(drafts)` — the batch upsert (1–20 cards per call).
+  Arguments are pydantic `TranslationDraft`s (variants 1–4, `preferred`
+  index into them, examples 1–3 with cloze, false-friend note). Validation
+  is layered: pydantic shape checks run for free, semantic rules (sentence
+  contains exactly one corpus form of the lemma; cloze is mechanically
+  derived from the sentence; multiple examples must each name their sense —
+  the polysemy guarantee) reject that single draft — valid batchmates still
+  land, rejected ones stay untranslated and resurface in the next poll.
+  Gloss collisions are advisory warnings, never rejections. Editing ==
+  submit again for the same lemma: upsert, journaled, model-stamped.
+- `set_statuses(changes)` — batch lifecycle (worklist / generated /
+  retired / skipped). skipped requires a reason and is the model-arbitrated
+  end for free cognates: poll_vocab tags each lemma with the
+  known-language word it resembles (similar_known) and the prompt puts the
+  judgment on the model — same meaning = eligible skip, different meaning =
+  false friend = card with a note. No curated false-friends list exists
+  anywhere in the system; the model's own knowledge is the arbiter.
 - `save_pair_profile(profile)` — init mode below.
 
 Output type stays `str`: the run ends with a short report (counts, notable

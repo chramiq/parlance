@@ -126,8 +126,8 @@ def add_lemmas(conn: sqlite3.Connection, rows: Iterable[dict]) -> tuple[int, int
 VALID_STATUSES = ("worklist", "generated", "retired", "skipped")
 
 
-def set_status(conn: sqlite3.Connection, lemma: str, status: str) -> bool:
-    """Transition a lemma's status (worklist | generated | retired).
+def set_status(conn: sqlite3.Connection, lemma: str, status: str, reason: str = "") -> bool:
+    """Transition a lemma's status (worklist | generated | retired | skipped).
 
     A transition to the current status is a no-op (not journaled).
 
@@ -142,7 +142,7 @@ def set_status(conn: sqlite3.Connection, lemma: str, status: str) -> bool:
     if row["status"] == status:
         return True
     conn.execute("UPDATE lemmas SET status=?, updated_at=? WHERE id=?", (status, now(), row["id"]))
-    journal(conn, f"status:{status}", row["id"], {"from": row["status"]})
+    journal(conn, f"status:{status}", row["id"], {"from": row["status"], "reason": reason})
     conn.commit()
     return True
 

@@ -20,6 +20,7 @@ from pydantic_ai.models.openai import OpenAIChatModel
 from pydantic_ai.providers.openai import OpenAIProvider
 
 from . import store
+from .cognates import known_vocab, similar_known
 from .config import Settings
 
 PROMPT_PATH = Path(__file__).parent / "prompts" / "vocab.md"
@@ -47,7 +48,7 @@ class Example(BaseModel):
 
 
 class TranslationDraft(BaseModel):
-    """Card payload accepted by submit_translation. Rejected args are retried by the model."""
+    """Card payload accepted by submit_translations. Rejected args are retried by the model."""
 
     lemma: str
     pos: str = Field(description="Part of speech, written in the KNOWN language")
@@ -75,6 +76,17 @@ class TranslationDraft(BaseModel):
         if len(self.examples) > 1 and any(not e.meaning for e in self.examples):
             raise ValueError("multiple examples must each state their meaning (sense)")
         return self
+
+
+class StatusChange(BaseModel):
+    """One lifecycle change accepted by set_statuses."""
+
+    lemma: str
+    status: Literal["worklist", "generated", "retired", "skipped"]
+    reason: str = Field(
+        default="",
+        description="Why this change is made. Required when status is 'skipped' (e.g. \"free cognate of 'systém'\")",
+    )
 
 
 class PairProfile(BaseModel):
@@ -194,6 +206,7 @@ def build_agent(s: Settings, db_path: Path, model: Model | None = None) -> Agent
     )
     with closing(store.connect(db_path)) as conn:
         profile = store.meta_get(conn, "pair_profile")
+    vocab_map = known_vocab(s.known_lang)
     profile_block = (
         f"\n\n## Language-pair profile (JSON)\n{json.dumps(profile, ensure_ascii=False, indent=1)}"
         if profile
@@ -212,11 +225,16 @@ def build_agent(s: Settings, db_path: Path, model: Model | None = None) -> Agent
         """Return up to n lemmas that have no translation yet, most frequent first, with corpus forms.
 
         Poll small batches (10-20), translate them, then poll again.
+        similar_known names the KNOWN-language word a lemma resembles (when
+        any): judge it yourself -- same meaning = free cognate, different
+        meaning = false friend, unrelated = ignore the tag.
         """
 
         with closing(store.connect(ctx.deps.db_path)) as conn:
             return [
-                dict(r) | {"forms": json.loads(r["forms"])}
+                dict(r)
+                | {"forms": json.loads(r["forms"])}
+                | {"similar_known": similar_known(r["lemma"], vocab_map)}
                 for r in store.poll_untranslated(conn, n)
             ]
 
@@ -235,77 +253,90 @@ def build_agent(s: Settings, db_path: Path, model: Model | None = None) -> Agent
             return store.find_lexicon(conn, text, where)
 
     @agent.tool
-    def submit_translation(ctx: RunContext[Deps], draft: TranslationDraft) -> str:
-        """Save (or replace, to edit) the complete card for one lemma.
+    def submit_translations(ctx: RunContext[Deps], drafts: list[TranslationDraft]) -> str:
+        """Save (or replace, to edit) complete cards for a batch of lemmas.
 
-        The draft is validated; semantic violations come back as retry hints.
-        Returned warnings are advisory only (e.g. gloss already used elsewhere).
+        Submit a whole polled batch in one call. Each draft is validated on
+        its own: valid cards are saved, invalid ones are reported back in
+        rejected with the reason (they stay untranslated and will reappear in
+        poll_vocab). Returned warnings are advisory only.
         """
+        if not 1 <= len(drafts) <= 20:
+            raise ModelRetry("submit 1-20 drafts per call")
+        saved, rejected, warnings = [], [], []
         with closing(store.connect(ctx.deps.db_path)) as conn:
-            row = conn.execute(
-                "SELECT id, forms, status FROM lemmas WHERE lemma=?", (draft.lemma,)
-            ).fetchone()
-            if row is None:
-                raise ModelRetry(
-                    f"{draft.lemma!r} is not in the vocabulary corpus; only translate lemmas from poll_vocab"
-                )
-            corpus_forms = list(dict.fromkeys(json.loads(row["forms"]) + [draft.lemma]))
-            for ex in draft.examples:
-                validate_cloze(ex, corpus_forms)
-            preferred = draft.variants[draft.preferred].gloss
-            duplicates = [
-                r["lemma"]
-                for r in conn.execute(
-                    "SELECT l.lemma FROM content c JOIN lemmas l ON l.id=c.lemma_id"
-                    " WHERE c.preferred_gloss=? AND c.lemma_id!=?",
-                    (preferred, row["id"]),
-                )
-            ]
-            # write order matters for crash recovery: metadata first, content
-            # second, status flip last -- every window re-polls and heals.
-            conn.execute(
-                "UPDATE lemmas SET pos=?, cognate_class=?, updated_at=? WHERE id=?",
-                (
-                    draft.pos,
-                    _cognate_class(draft.lemma, preferred, draft.false_friend_note),
-                    store.now(),
-                    row["id"],
-                ),
-            )
-            conn.commit()
-            created = store.upsert_content(
-                conn,
-                lemma_id=row["id"],
-                kind="lemma",
-                preferred_gloss=preferred,
-                payload=draft.model_dump_json(),
-                model=ctx.deps.model_name,
-            )
-            if row["status"] == "worklist":
-                store.set_status(conn, draft.lemma, "generated")
-            return json.dumps(
-                {
-                    "saved": draft.lemma,
-                    "created": created,
-                    "warnings": [
-                        f"preferred gloss {preferred!r} already used by: {', '.join(duplicates)}"
+            for draft in drafts:
+                try:
+                    row = conn.execute(
+                        "SELECT id, forms, status FROM lemmas WHERE lemma=?", (draft.lemma,)
+                    ).fetchone()
+                    if row is None:
+                        raise ValueError(
+                            "not in the vocabulary corpus; only lemmas from poll_vocab exist"
+                        )
+                    corpus_forms = list(dict.fromkeys(json.loads(row["forms"]) + [draft.lemma]))
+                    for ex in draft.examples:
+                        validate_cloze(ex, corpus_forms)
+                    preferred = draft.variants[draft.preferred].gloss
+                    duplicates = [
+                        r["lemma"]
+                        for r in conn.execute(
+                            "SELECT l.lemma FROM content c JOIN lemmas l ON l.id=c.lemma_id"
+                            " WHERE c.preferred_gloss=? AND c.lemma_id!=?",
+                            (preferred, row["id"]),
+                        )
                     ]
-                    if duplicates
-                    else [],
-                },
-                ensure_ascii=False,
-            )
+                    if duplicates:
+                        warnings.append(
+                            f"{draft.lemma}: gloss {preferred!r} already used by {', '.join(duplicates)}"
+                        )
+                    # write order matters for crash recovery: metadata first,
+                    # content second, status flip last -- every window heals on re-poll.
+                    conn.execute(
+                        "UPDATE lemmas SET pos=?, cognate_class=?, updated_at=? WHERE id=?",
+                        (
+                            draft.pos,
+                            _cognate_class(draft.lemma, preferred, draft.false_friend_note),
+                            store.now(),
+                            row["id"],
+                        ),
+                    )
+                    conn.commit()
+                    store.upsert_content(
+                        conn,
+                        lemma_id=row["id"],
+                        kind="lemma",
+                        preferred_gloss=preferred,
+                        payload=draft.model_dump_json(),
+                        model=ctx.deps.model_name,
+                    )
+                    if row["status"] == "worklist":
+                        store.set_status(conn, draft.lemma, "generated")
+                    saved.append(draft.lemma)
+                except (ValueError, ModelRetry) as e:
+                    rejected.append({"lemma": draft.lemma, "error": str(e)})
+        if not saved:
+            raise ModelRetry(f"every draft was rejected: {rejected}")
+        return json.dumps(
+            {"saved": saved, "rejected": rejected, "warnings": warnings}, ensure_ascii=False
+        )
 
     @agent.tool
-    def set_status(
-        ctx: RunContext[Deps], lemma: str, status: Literal["worklist", "generated", "retired"]
-    ) -> str:
-        """Set a lemma's lifecycle status. Use retired for bad or stale cards."""
+    def set_statuses(ctx: RunContext[Deps], changes: list[StatusChange]) -> str:
+        """Set lifecycle status for a batch of lemmas. retired = bad/stale card;
+        skipped = deliberately not learned (reason required), e.g. a free cognate.
+        """
+        applied, rejected = [], []
         with closing(store.connect(ctx.deps.db_path)) as conn:
-            ok = store.set_status(conn, lemma, status)
-        if ok:
-            return f"{lemma}: {status}"
-        raise ModelRetry(f"unknown lemma {lemma!r}")
+            for ch in changes:
+                if ch.status == "skipped" and not ch.reason:
+                    rejected.append({"lemma": ch.lemma, "error": "skipped requires a reason"})
+                    continue
+                if store.set_status(conn, ch.lemma, ch.status, reason=ch.reason):
+                    applied.append(ch.lemma)
+                else:
+                    rejected.append({"lemma": ch.lemma, "error": "unknown lemma"})
+        return json.dumps({"applied": applied, "rejected": rejected}, ensure_ascii=False)
 
     @agent.tool
     def save_pair_profile(ctx: RunContext[Deps], profile: PairProfile) -> str:

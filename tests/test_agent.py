@@ -108,14 +108,14 @@ def scripted_submit(messages, info: AgentInfo) -> ModelResponse:
         for p in getattr(m, "parts", [])
     )
     seen_submit = any(
-        isinstance(p, ToolCallPart) and p.tool_name == "submit_translation"
+        isinstance(p, ToolCallPart) and p.tool_name == "submit_translations"
         for m in messages
         for p in getattr(m, "parts", [])
     )
     if not seen_poll:
         return ModelResponse(parts=[ToolCallPart("poll_vocab", {"n": 5})])
     if not seen_submit:
-        return ModelResponse(parts=[ToolCallPart("submit_translation", {"draft": VALID_DRAFT})])
+        return ModelResponse(parts=[ToolCallPart("submit_translations", {"drafts": [VALID_DRAFT]})])
     return ModelResponse(parts=[TextPart("report: 1 card")])
 
 
@@ -169,13 +169,13 @@ def scripted_edit_then_collide(messages, info: AgentInfo) -> ModelResponse:
         p
         for m in messages
         for p in getattr(m, "parts", [])
-        if isinstance(p, ToolCallPart) and p.tool_name == "submit_translation"
+        if isinstance(p, ToolCallPart) and p.tool_name == "submit_translations"
     ]
     if len(submits) == 0:
-        return ModelResponse(parts=[ToolCallPart("submit_translation", {"draft": VALID_DRAFT})])
+        return ModelResponse(parts=[ToolCallPart("submit_translations", {"drafts": [VALID_DRAFT]})])
     if len(submits) == 1:
         edited = dict(VALID_DRAFT, examples=VALID_DRAFT["examples"], false_friend_note="pozor")
-        return ModelResponse(parts=[ToolCallPart("submit_translation", {"draft": edited})])
+        return ModelResponse(parts=[ToolCallPart("submit_translations", {"drafts": [edited]})])
     if len(submits) == 2:
         colliding = dict(
             VALID_DRAFT,
@@ -184,7 +184,7 @@ def scripted_edit_then_collide(messages, info: AgentInfo) -> ModelResponse:
                 {"target": "Jestem w domu.", "known": "Jsem doma.", "cloze": "[...] w domu."}
             ],
         )
-        return ModelResponse(parts=[ToolCallPart("submit_translation", {"draft": colliding})])
+        return ModelResponse(parts=[ToolCallPart("submit_translations", {"drafts": [colliding]})])
     return ModelResponse(parts=[TextPart("done")])
 
 
@@ -196,6 +196,52 @@ def test_edit_path_and_collision_warning(tmp_path):
     assert row is not None and json.loads(row["payload"])["false_friend_note"] == "pozor"
     coll = store.get_content(conn, "być")
     assert coll is not None and coll["preferred_gloss"] == "milovat"
+
+
+def scripted_skip(messages, info: AgentInfo) -> ModelResponse:
+    names = {
+        p.tool_name
+        for m in messages
+        for p in getattr(m, "parts", [])
+        if isinstance(p, ToolCallPart)
+    }
+    if "poll_vocab" not in names:
+        return ModelResponse(parts=[ToolCallPart("poll_vocab", {"n": 5})])
+    if "set_statuses" not in names:
+        return ModelResponse(
+            parts=[
+                ToolCallPart(
+                    "set_statuses",
+                    {
+                        "changes": [
+                            {
+                                "lemma": "system",
+                                "status": "skipped",
+                                "reason": "free cognate of cs 'systém'",
+                            },
+                            {"lemma": "kochać", "status": "skipped"},  # no reason -> rejected
+                        ]
+                    },
+                )
+            ]
+        )
+    return ModelResponse(parts=[TextPart("done")])
+
+
+def test_skip_flow_reason_required_and_tag(tmp_path):
+    db, conn = seeded(tmp_path)
+    store.add_lemmas(conn, [{"lemma": "system", "freq_rank": 4, "freq": 50, "forms": ["systemu"]}])
+    agent = build_agent(Settings(), db, model=FunctionModel(scripted_skip))
+    agent.run_sync("go", deps=Deps(db_path=db, model_name="testmodel"))
+    got = {r["lemma"]: r["status"] for r in conn.execute("SELECT lemma, status FROM lemmas")}
+    assert got["system"] == "skipped"
+    assert got["kochać"] == "worklist"
+    detail = next(
+        json.loads(r["detail"])
+        for r in conn.execute("SELECT detail FROM changes WHERE action='status:skipped'")
+    )
+    assert detail["reason"] == "free cognate of cs 'systém'"
+    assert detail["from"] == "worklist"
 
 
 def test_meta_roundtrip(tmp_path):

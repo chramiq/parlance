@@ -1,22 +1,14 @@
-"""Cognate tooling: known-language vocab membership + false-friends guard.
+"""Cognate tooling: known-language vocab map + orthographic similarity tags.
 
-Membership answers 'is this target lemma also a word in the known language'
-using simplemma's bundled dictionaries (offline). The guard stops the one
-fatal class of error: words that exist in BOTH languages but mean different
-things (szukać = hledat, NOT šukat) must never count as free cognates.
+The map answers 'which known-language word does this target lemma resemble',
+used only to TAG lemmas for the model. The model owns every judgment
+(free cognate, false friend, unrelated) — nothing here decides.
 """
 
-import json
-import sqlite3
 import unicodedata
 from functools import lru_cache
-from pathlib import Path
 
 from simplemma.strategies.dictionaries import DefaultDictionaryFactory
-
-from .store import now
-
-FF_DIR = Path(__file__).parent / "data"
 
 
 def strip_diacritics(s: str) -> str:
@@ -27,49 +19,19 @@ def strip_diacritics(s: str) -> str:
 
 
 @lru_cache(maxsize=4)
-def known_lemmas(lang: str) -> frozenset[str]:
-    """All diacritic-stripped LEMMAS of the known language, from simplemma's bundled dictionary.
-
-    Lemmas, not forms: matching against arbitrary forms wrongly equates a
-    target lemma with some obscure known-language inflection (Polish kochać
-    vs Czech kochám-from-kochat-se).
-    """
+def known_vocab(lang: str) -> dict[str, list[str]]:
+    """Map of diacritic-stripped known-language form to the actual lemma(s), max 3 each."""
     mapping = DefaultDictionaryFactory().get_dictionary(lang)
-    return frozenset(strip_diacritics(v) for v in mapping.values())
+    out: dict[str, list[str]] = {}
+    for lemma in mapping.values():
+        key = strip_diacritics(lemma)
+        bucket = out.setdefault(key, [])
+        if len(bucket) < 3 and lemma not in bucket:
+            bucket.append(lemma)
+    return out
 
 
-@lru_cache(maxsize=8)
-def ff_guard(target_lang: str, known_lang: str) -> frozenset[str]:
-    """Target lemmas that look like known-language words but mean something else, for this pair.
-
-    Returns an empty set for pairs without a curated guard file.
-    """
-    path = FF_DIR / f"false_friends_{target_lang}_{known_lang}.json"
-    if not path.exists():
-        return frozenset()
-    return frozenset(json.loads(path.read_text(encoding="utf-8"))["guards"])
-
-
-def mark_free_cognates(conn: sqlite3.Connection, *, target_lang: str, known_lang: str) -> list[str]:
-    """Mark untranslated lemmas that are also known-language words and not false friends.
-
-    Matched rows get cognate_class='free' and status='skipped', excluding them
-    from generation. Guarded (false-friend) lemmas are never touched.
-    """
-    vocab = known_lemmas(known_lang)
-    guard = ff_guard(target_lang, known_lang)
-    rows = list(
-        conn.execute(
-            "SELECT id, lemma FROM lemmas WHERE status='worklist' AND (cognate_class IS NULL OR cognate_class='')"
-        )
-    )
-    skipped = []
-    for r in rows:
-        if strip_diacritics(r["lemma"]) in vocab and r["lemma"] not in guard:
-            conn.execute(
-                "UPDATE lemmas SET cognate_class='free', status='skipped', updated_at=? WHERE id=?",
-                (now(), r["id"]),
-            )
-            skipped.append(r["lemma"])
-    conn.commit()
-    return skipped
+def similar_known(lemma: str, vocab: dict[str, list[str]]) -> str | None:
+    """The known-language word(s) the target lemma orthographically resembles, or None."""
+    hits = vocab.get(strip_diacritics(lemma))
+    return ", ".join(hits) if hits else None
