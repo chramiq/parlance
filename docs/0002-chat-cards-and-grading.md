@@ -65,25 +65,36 @@ those model replies as its rubric. The stack, in descending effort:
 
 Two note types in the deck:
 
-- `lemma` note (kept from v1, fixed): lemma + forms, chosen gloss, variants,
+- `lemma` note: lemma + forms, chosen gloss, variants,
   pos/gender, example sentence (from his profile/chats), cloze, false-friend
-  note, word + sentence audio. Templates: Recognition (PL→known), Production
-  (known→PL, typed, single word — exact match is legitimate here), Context
-  (cloze + audio). Cognates classed `free` get production+context only — no
-  recognition card for a word he already has.
+  note, word + sentence audio. Templates: Discover (PL→known), Type it
+  (known→PL, typed, single word — exact match is legitimate here).
+  Cognates classed `free` get the typing card only.
+
+  Mechanism note: suppression of the recognition card is STRUCTURAL — a
+  separate `parlance-lemma-cognate` model with only the Type-it template —
+  not the blank-front trick. Anki's required-fields rule is conjunctive on
+  non-empty values, so 'generate only when field X is empty' is not
+  expressible; a qfmt wrapped in an inverted mustache section makes Anki
+  treat every referenced field as required and cards silently vanish
+  whenever any field is empty.
 - `chatline` note (new, flagship): incoming_pl, audio, context_note,
   model_replies (2–3), gloss. Templates: Read&Respond (typed/said reply), and
   for chat-sourced lines Listen&Respond (audio-only front — forces listening
   comprehension before reading).
 
 Audio speed is a template concern, not a generation concern (user note:
-learner-speed slowness is deliberate pedagogy, not a TTS defect). Audio is
-generated ONCE at natural rate; card templates render a second "slow" button
-that replays the same file via HTMLAudioElement.playbackRate (0.75x), so one
-clip serves normal listening and careful parsing, with webview pitch
-correction instead of TTS-stretched artifacts. Fallback if the AnkiDroid
-webview proves unreliable with playbackRate: bake an additive slow variant
-as a second content-hashed file (no schema change, just more media).
+learner-speed slowness is deliberate pedagogy, not a TTS defect).
+
+REVISED after a live device test: the playbackRate/HTML5-audio plan failed
+in practice — Anki's desktop webview (Qt WebEngine) ships no MP3 codec, so
+`<audio>` plays on no desktop: buttons clicked, silence. Anki only plays
+audio through its own native pipeline, i.e. `[sound:]` tags. The design reverted to the v1-proven shape: hidden
+native `[sound:]` rows (two per utterance: normal rate and a -20%
+learner-slow variant, each its own content-hashed cached file), and the
+custom glyph buttons merely click the hidden native replay buttons by
+index. Cost: 2x clips per note, cached identically; benefit: works on
+desktop AND AnkiDroid with zero codec questions.
 
 ## What this enables
 

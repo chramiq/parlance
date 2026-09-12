@@ -28,7 +28,7 @@ def test_generate_driver_credits_then_stops(tmp_path, monkeypatch):
                 raise UsageLimitExceeded("simulated context exhaustion")
             return SimpleNamespace(output="", usage=None)
 
-    monkeypatch.setattr(cli, "build_agent", lambda s, db_path: FakeAgent())
+    monkeypatch.setattr(cli, "build_agent", lambda s, db_path, **kw: FakeAgent())
     result = CliRunner().invoke(cli.app, ["generate", "--count", "5"])
     assert result.exit_code == 0
     assert FakeAgent.calls == 2

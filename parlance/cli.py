@@ -13,6 +13,8 @@ from .config import get_settings
 app = typer.Typer(no_args_is_help=True)
 worklist_app = typer.Typer(no_args_is_help=True, help="Build and inspect the lemma worklist.")
 app.add_typer(worklist_app, name="worklist")
+deck_app = typer.Typer(no_args_is_help=True, help="Assemble the Anki deck from stored cards.")
+app.add_typer(deck_app, name="deck")
 
 
 @worklist_app.command("build")
@@ -77,12 +79,18 @@ def init_profile(note: str = ""):
 
 
 @app.command("generate")
-def generate(count: int = 20, batch: int = 15, max_requests: int = 60):
+def generate(
+    count: int = 20,
+    batch: int = 15,
+    max_requests: int = 60,
+    random_sample: bool = False,
+    prompt: str = "",
+):
     """Translate new vocabulary cards via the agent restart-loop.
 
-    Each run is request-bounded; when it exhausts its context budget the
-    driver starts a fresh agent run, and untranslated polling makes the
-    continuation idempotent by construction.
+    random_sample polls a random corpus slice instead of the frequency head.
+    prompt appends a user persona/task note to the agent's instructions for
+    this run.
     """
     s = get_settings()
     submitted = 0
@@ -94,7 +102,7 @@ def generate(count: int = 20, batch: int = 15, max_requests: int = 60):
         else ""
     )
     with closing(store.connect(s.db_path)) as conn:
-        agent = build_agent(s, s.db_path)
+        agent = build_agent(s, s.db_path, extra_prompt=prompt)
         while submitted < count:
             before = _content_count(conn)
             remaining = min(count - submitted, batch)
@@ -102,7 +110,11 @@ def generate(count: int = 20, batch: int = 15, max_requests: int = 60):
                 result = agent.run_sync(
                     f"Submit {remaining} new vocabulary cards following your "
                     f"instructions, then report." + skip_clause,
-                    deps=Deps(db_path=s.db_path, model_name=s.litellm_model or "unknown"),
+                    deps=Deps(
+                        db_path=s.db_path,
+                        model_name=s.litellm_model or "unknown",
+                        randomize=random_sample,
+                    ),
                     usage_limits=UsageLimits(request_limit=max_requests),
                 )
                 report = result.output.strip().splitlines()[0] if result.output else ""
@@ -122,3 +134,15 @@ def generate(count: int = 20, batch: int = 15, max_requests: int = 60):
                 typer.echo("run submitted nothing; stopping instead of burning budget.")
                 break
         typer.echo(store.stats(conn))
+
+
+@deck_app.command("build")
+def deck_build(limit: int | None = None):
+    """Render audio and write the vocab .apkg into var/out/."""
+    import asyncio
+
+    from .deck.build import build
+
+    path, counts = asyncio.run(build(get_settings(), limit=limit))
+    typer.echo(counts)
+    typer.echo(f"deck written: {path}")

@@ -219,12 +219,19 @@ def get_content(conn: sqlite3.Connection, lemma: str, kind: str = "lemma") -> sq
     ).fetchone()
 
 
-def poll_untranslated(conn: sqlite3.Connection, n: int) -> list[sqlite3.Row]:
-    """Up to n worklist lemmas in frequency order, with corpus forms."""
+def poll_untranslated(
+    conn: sqlite3.Connection, n: int, randomize: bool = False
+) -> list[sqlite3.Row]:
+    """Up to n worklist lemmas, with corpus forms.
+
+    Default order is frequency rank; randomize gives a random sample across
+    the corpus (architecture stress-testing vs full spectrum).
+    """
+    order = "RANDOM()" if randomize else "freq_rank"
     return list(
         conn.execute(
-            "SELECT lemma, freq_rank, freq, forms, cognate_class FROM lemmas"
-            " WHERE status='worklist' ORDER BY freq_rank LIMIT ?",
+            f"SELECT lemma, freq_rank, freq, forms, cognate_class FROM lemmas"
+            f" WHERE status='worklist' ORDER BY {order} LIMIT ?",
             (n,),
         )
     )

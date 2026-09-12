@@ -124,6 +124,7 @@ class Deps:
 
     db_path: Path
     model_name: str
+    randomize: bool = False
 
 
 def validate_cloze(ex: Example, corpus_forms: list[str]) -> None:
@@ -178,13 +179,17 @@ async def strip_gateway_metadata(response: httpx2.Response) -> None:
     response._content = json.dumps(data).encode()
 
 
-def build_agent(s: Settings, db_path: Path, model: Model | None = None) -> Agent[Deps, str]:
+def build_agent(
+    s: Settings, db_path: Path, model: Model | None = None, extra_prompt: str = ""
+) -> Agent[Deps, str]:
     """Build the one agent with its five tools over the store.
 
     Args:
         s: Settings with the LiteLLM endpoint and language pair.
         db_path: Store location; tool calls open their own connections to it.
         model: Override model (tests); built from the endpoint when omitted.
+        extra_prompt: Optional user persona/task note appended to the
+            instructions for this run (clis: --prompt).
     """
     if model is None:
         if not (s.litellm_base_url and s.litellm_api_key and s.litellm_model):
@@ -212,6 +217,8 @@ def build_agent(s: Settings, db_path: Path, model: Model | None = None) -> Agent
         if profile
         else "\n\nNo pair profile saved yet; use sensible defaults for the pair."
     )
+    if extra_prompt:
+        profile_block += f"\n\n## User note for this run\n{extra_prompt}"
     agent = Agent[Deps, str](
         model,
         deps_type=Deps,
@@ -235,7 +242,7 @@ def build_agent(s: Settings, db_path: Path, model: Model | None = None) -> Agent
                 dict(r)
                 | {"forms": json.loads(r["forms"])}
                 | {"similar_known": similar_known(r["lemma"], vocab_map)}
-                for r in store.poll_untranslated(conn, n)
+                for r in store.poll_untranslated(conn, n, ctx.deps.randomize)
             ]
 
     @agent.tool

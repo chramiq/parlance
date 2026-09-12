@@ -28,6 +28,7 @@ class Settings(BaseSettings):
     known_lang: str = "cs"
     target_lang: str = "pl"
     tts_voice: str = "pl-PL-ZofiaNeural"
+    tts_rate: str = "-25%"
     chat_self_name: str = ""
 
     data_dir: Path = Field(default_factory=lambda: _PACKAGE_ROOT / "var")
