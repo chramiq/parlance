@@ -52,8 +52,23 @@ def _content_count(conn) -> int:
     return conn.execute("SELECT COUNT(*) n FROM content WHERE kind='lemma'").fetchone()["n"]
 
 
+def _report_tool_rejects(result) -> None:
+    """Echo any per-item rejections reported by the write tools this run."""
+    from pydantic_ai.messages import ToolReturnPart
+
+    for m in result.all_messages():
+        for p in getattr(m, "parts", []):
+            if isinstance(p, ToolReturnPart) and p.tool_name in (
+                "submit_translations",
+                "set_statuses",
+            ):
+                txt = str(p.content)
+                if '"rejected": [{' in txt:
+                    typer.echo(f"  tool reject: {txt[:400]}")
+
+
 @app.command("init")
-def init_profile(note: str = ""):
+def init_profile(note: str = typer.Option("", "--note", help="Persona facts the profile should bake in.")):
     """Establish the language-pair profile (pos tags, register tags, style rules)."""
     s = get_settings()
     known = LANG_NAMES.get(s.known_lang, s.known_lang)
@@ -119,6 +134,7 @@ def generate(
                 )
                 report = result.output.strip().splitlines()[0] if result.output else ""
                 usage = result.usage
+                _report_tool_rejects(result)
             except UsageLimitExceeded as e:
                 report = f"run hit usage limit: {e}"
                 usage = "n/a"

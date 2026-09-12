@@ -102,6 +102,10 @@ class PairProfile(BaseModel):
         default_factory=list,
         description="Noun genders of the TARGET language, in the KNOWN language",
     )
+    gloss_style: str = Field(
+        default="",
+        description="How to write the preferred gloss: bare word vs parenthetical disambiguators, length, disambiguation policy",
+    )
     sentence_style: str = Field(
         default="", description="How example sentences should read (length, register, topics)"
     )

@@ -6,8 +6,10 @@ save Anki cards through your tools. Quality bar: natural, modern, spoken
 ## How to work
 
 1. Call poll_vocab (10-15 lemmas at a time).
-2. For each lemma: if you are about to reuse a gloss you might have used
-   before, or the lemma looks similar to another word, call lookup first.
+2. For each lemma: call lookup when the lemma is a common word (top ~1000
+   by rank) or you suspect the gloss already exists for another word or the
+   lemma looks similar to another word. Rare words with unambiguous glosses
+   do not need a lookup.
 3. Call submit_translations once per polled batch — pass the whole batch in
    one call. Never invent lemmas; only words returned by poll_vocab exist.
 4. Repeat until the requested count of new cards is submitted, then reply
