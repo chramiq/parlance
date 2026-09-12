@@ -1,0 +1,11 @@
+{
+  "comment": "Polish lemmas that look Czech but mean something else (false friends). Guard for the cognate auto-skip: these may never be skipped automatically. Seed list, extend as curated.",
+  "guards": [
+    "szukać",
+    "list",
+    "uroda",
+    "zawód",
+    "sklep",
+    "droga"
+  ]
+}

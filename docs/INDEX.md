@@ -40,3 +40,4 @@ answers don't work, and the system built instead.
 | 0002 | [Chat-sim cards and the grading split: self-grade on mobile, existing add-ons on desktop, LLM in CLI](0002-chat-cards-and-grading.md) |
 | 0003 | [Deck lifecycle: stable GUIDs update in place; retirement is explicit](0003-deck-lifecycle.md) |
 | 0004 | [Model strategy: LiteLLM gateway, one model, output-mode ladder, thinking off for JSON](0004-model-strategy.md) |
+| 0005 | [The agent: tool-argument schemas as the validation boundary, restart-loop driver, pair-profile init](0005-agent-design.md) |

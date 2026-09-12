@@ -33,6 +33,10 @@ class Settings(BaseSettings):
     data_dir: Path = Field(default_factory=lambda: _PACKAGE_ROOT / "var")
     worklist_scan_forms: int = 20000
 
+    # words identical in both languages are auto-skipped before generation
+    # (false-friends guard still applies); off by default
+    skip_free_cognates: bool = False
+
     @property
     def db_path(self) -> Path:
         return self.data_dir / "parlance.db"

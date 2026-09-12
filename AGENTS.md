@@ -17,15 +17,17 @@ Success = production, not memorization.
 
 | Path | What lives there |
 |---|---|
-| `parlance/cli.py` | typer CLI: `worklist`, `import-chats`, `profile`, `generate`, `curate`, `deck`, `practice` |
+| `parlance/cli.py` | typer CLI: `worklist` (build/list/stats), `init` (pair profile), `generate` (restart-loop). More verbs land with their phase |
 | `parlance/config.py` | pydantic-settings from `.env`: LLM endpoint, language pair, paths |
 | `parlance/store.py` | SQLite source of truth: lemmas, glosses, variants, sources, card state, priority score |
-| `parlance/worklist.py` | frequency list -> simplemma lemma queue, cognate classification, dedup vs store |
+| `parlance/worklist.py` | frequency list -> simplemma lemma queue, dedup vs store |
+| `parlance/cognates.py` | known-language vocab membership (simplemma lemmas), false-friend guards (`parlance/data/false_friends_*.json`), free-cognate auto-skip |
 | `parlance/profile.py` | learner-profile builder from imported chats (topics, register, recurring situations) |
 | `parlance/chats/` | export parsers: `meta.py` (Instagram + Messenger DYI json), `signal.py` (signal-export output) |
-| `parlance/agent.py` | the single pydantic-ai agent: generates translations, profiles chats, maintains the store via tools (batch prompts or conversation) |
+| `parlance/agent.py` | the single pydantic-ai agent + its 5 store tools (poll_vocab, lookup, submit_translation, set_status, save_pair_profile); tool-arg schemas are the validation boundary |
 | `parlance/deck/` | Anki emission: `model.py` (note types + templates), `build.py` (genanki, GUID/due/media) |
-| `parlance/tts.py` | pluggable TTS with content-hash audio cache (edge-tts default, Google Chirp3-HD optional) |
+| `parlance/tts.py` | TTS providers + content-hash audio cache (edge-tts default) |
+| `parlance/prompts/` | agent instruction files (`vocab.md`); profile JSON is rendered in at build time |
 | `docs/` | architecture decision records (`INDEX.md` + one file per ADR) — read these for why |
 | `tests/` | pytest; agents run offline against TestModel/FunctionModel |
 | `var/` | all runtime state (gitignored): `parlance.db`, audio cache, chat exports |

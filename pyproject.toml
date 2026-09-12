@@ -1,7 +1,7 @@
 [project]
 name = "parlance"
 version = "0.1.0"
-description = "Personal Anki material for actually speaking a language — chat-sim cards, own-chat imports, agent-curated vocabulary."
+description = "Personal Anki material for actually speaking a language."
 requires-python = ">=3.13"
 dependencies = [
     "pydantic-ai>=2",

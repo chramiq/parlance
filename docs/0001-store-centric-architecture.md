@@ -94,8 +94,10 @@ subdecks so per-subdeck daily limits and FSRS stay native Anki.
 
 - An import step the user must run manually per platform (Meta ZIP, Signal via
   linked Desktop); there is no live "sync my chats" — that is deliberate.
-- One schema migration path to maintain once the store format evolves
-  (sqlite `user_version`, plain `ALTER TABLE` migrations).
+- Dev build stance on schema change: no migrations. `user_version` is stamped
+  and checked; on mismatch `connect()` fails loudly with "delete and
+  rebuild". Real migrations return the day curated cards become
+  irreplaceable — that's data loss policy, not laziness.
 - The curator's editing power is unsupervised; it can merge the wrong two
   lemmas. Mitigation: every mutation is journaled in a `changes` table.
 
