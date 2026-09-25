@@ -166,6 +166,24 @@ def deck_build(limit: int | None = None):
     typer.echo(f"deck written: {path}")
 
 
+@app.command("lexicon")
+def lexicon_build(
+    extract_dir: str = typer.Option(
+        "", help="Folder with pre-downloaded {lang}-extract.jsonl.gz files."
+    ),
+):
+    """Build the translation-hint table from kaikki edition dumps (downloads if missing)."""
+    from pathlib import Path
+
+    from .lexicon import build_pairs
+
+    s = get_settings()
+    src = Path(extract_dir) if extract_dir else None
+    with closing(store.connect(s.db_path)) as conn:
+        stats = build_pairs(conn, s.known_lang, s.target_lang, s.db_path.parent / "lexicon", src)
+    typer.echo(stats)
+
+
 @app.command("audit")
 def audit(sample: int = 15, prompt: str = ""):
     """Self-check pass: the agent reviews a random sample of stored cards and fixes defects."""

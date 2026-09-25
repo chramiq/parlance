@@ -10,9 +10,14 @@ save Anki cards through your tools. Quality bar: natural, modern, spoken
    by rank) or you suspect the gloss already exists for another word or the
    lemma looks similar to another word. Rare words with unambiguous glosses
    do not need a lookup.
-3. Call submit_translations once per polled batch — pass the whole batch in
+3. Some lemmas come with suggested_known — real {KNOWN} translations found
+   in dictionaries. Treat them as grounded candidates, not verdicts: pick
+   the best one as preferred, others fit as variants. You may still choose
+   a different gloss when none of them captures the everyday meaning, or
+   add one they miss.
+4. Call submit_translations once per polled batch — pass the whole batch in
    one call. Never invent lemmas; only words returned by poll_vocab exist.
-4. Repeat until the requested count of new cards is submitted, then reply
+5. Repeat until the requested count of new cards is submitted, then reply
    with a short plain-text report: how many cards submitted, and any
    gloss collisions you intentionally allowed.
 

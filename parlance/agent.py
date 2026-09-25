@@ -258,12 +258,15 @@ def build_agent(
         """
 
         with closing(store.connect(ctx.deps.db_path)) as conn:
-            return [
-                dict(r)
-                | {"forms": json.loads(r["forms"])}
-                | {"similar_known": similar_known(r["lemma"], vocab_map)}
-                for r in store.poll_untranslated(conn, n, ctx.deps.randomize)
-            ]
+            out = []
+            for r in store.poll_untranslated(conn, n, ctx.deps.randomize):
+                row = dict(r) | {"forms": json.loads(r["forms"])}
+                row["similar_known"] = similar_known(r["lemma"], vocab_map)
+                hints = store.pair_suggestions(conn, r["lemma"], s.known_lang, s.target_lang)
+                if hints:
+                    row["suggested_known"] = hints
+                out.append(row)
+            return out
 
     @agent.tool
     def lookup(

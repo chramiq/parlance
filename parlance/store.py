@@ -55,6 +55,20 @@ CREATE TABLE IF NOT EXISTS meta (
 );
 """
 
+# Additive-only tables: safe on existing databases, so executed on EVERY
+# connect (all statements must stay IF NOT EXISTS idempotent).
+_ADDITIVE = """
+CREATE TABLE IF NOT EXISTS lexicon_pairs (
+    target_lang TEXT NOT NULL,
+    target TEXT NOT NULL,
+    known_lang TEXT NOT NULL,
+    known TEXT NOT NULL,
+    sources TEXT NOT NULL DEFAULT '[]',
+    PRIMARY KEY (target_lang, target, known_lang, known)
+);
+CREATE INDEX IF NOT EXISTS lexicon_pairs_lookup ON lexicon_pairs(target_lang, target, known_lang);
+"""
+
 
 def now() -> str:
     """Current UTC timestamp as an ISO string, second precision, for row stamps."""
@@ -83,6 +97,8 @@ def connect(db_path: Path) -> sqlite3.Connection:
             f"schema version mismatch: db={version}, code={SCHEMA_VERSION}. "
             f"Dev build, no migrations: delete {db_path} and rebuild."
         )
+    conn.executescript(_ADDITIVE)
+    conn.commit()
     return conn
 
 
@@ -235,6 +251,38 @@ def poll_untranslated(
             (n,),
         )
     )
+
+
+def replace_pairs(
+    conn: sqlite3.Connection, target_lang: str, known_lang: str, rows: list[tuple]
+) -> int:
+    """Replace all lexicon hint rows for a language pair. rows: (target_field, target, known_field, known, sources_json)."""
+    conn.execute(
+        "DELETE FROM lexicon_pairs WHERE target_lang = ? AND known_lang = ?",
+        (target_lang, known_lang),
+    )
+    conn.executemany(
+        "INSERT INTO lexicon_pairs (target_lang, target, known_lang, known, sources)"
+        " VALUES (?, ?, ?, ?, ?)",
+        rows,
+    )
+    conn.commit()
+    return len(rows)
+
+
+def pair_suggestions(
+    conn: sqlite3.Connection, lemma: str, known_lang: str, target_lang: str, limit: int = 8
+) -> list[str]:
+    """Grounded KNOWN-word candidates for a TARGET lemma, shortest first."""
+    return [
+        r["known"]
+        for r in conn.execute(
+            "SELECT known FROM lexicon_pairs"
+            " WHERE target_lang = ? AND known_lang = ? AND target = ?"
+            " ORDER BY LENGTH(known) LIMIT ?",
+            (target_lang, known_lang, lemma, limit),
+        )
+    ]
 
 
 def sample_generated(conn: sqlite3.Connection, n: int) -> list[dict]:
