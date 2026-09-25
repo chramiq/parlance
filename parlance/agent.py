@@ -24,6 +24,7 @@ from .cognates import known_vocab, similar_known
 from .config import Settings
 
 PROMPT_PATH = Path(__file__).parent / "prompts" / "vocab.md"
+AUDIT_PROMPT_PATH = Path(__file__).parent / "prompts" / "audit.md"
 
 LANG_NAMES = {"cs": "Czech", "pl": "Polish", "en": "English", "de": "German", "sk": "Slovak"}
 
@@ -184,7 +185,11 @@ async def strip_gateway_metadata(response: httpx2.Response) -> None:
 
 
 def build_agent(
-    s: Settings, db_path: Path, model: Model | None = None, extra_prompt: str = ""
+    s: Settings,
+    db_path: Path,
+    model: Model | None = None,
+    extra_prompt: str = "",
+    audit: bool = False,
 ) -> Agent[Deps, str]:
     """Build the one agent with its five tools over the store.
 
@@ -194,6 +199,8 @@ def build_agent(
         model: Override model (tests); built from the endpoint when omitted.
         extra_prompt: Optional user persona/task note appended to the
             instructions for this run (clis: --prompt).
+        audit: Load the proofreader instructions (review_sample available)
+            instead of the generator instructions.
     """
     if model is None:
         if not (s.litellm_base_url and s.litellm_api_key and s.litellm_model):
@@ -230,6 +237,15 @@ def build_agent(
         output_type=str,
         retries=5,
     )
+
+    if audit:
+
+        @agent.tool
+        def review_sample(ctx: RunContext[Deps], n: int = 10) -> list[dict]:
+            """Return a random sample of up to n existing cards with full payloads, for auditing."""
+
+            with closing(store.connect(ctx.deps.db_path)) as conn:
+                return store.sample_generated(conn, n)
 
     @agent.tool
     def poll_vocab(ctx: RunContext[Deps], n: int = 10) -> list[dict]:

@@ -68,7 +68,9 @@ def _report_tool_rejects(result) -> None:
 
 
 @app.command("init")
-def init_profile(note: str = typer.Option("", "--note", help="Persona facts the profile should bake in.")):
+def init_profile(
+    note: str = typer.Option("", "--note", help="Persona facts the profile should bake in."),
+):
     """Establish the language-pair profile (pos tags, register tags, style rules)."""
     s = get_settings()
     known = LANG_NAMES.get(s.known_lang, s.known_lang)
@@ -162,3 +164,22 @@ def deck_build(limit: int | None = None):
     path, counts = asyncio.run(build(get_settings(), limit=limit))
     typer.echo(counts)
     typer.echo(f"deck written: {path}")
+
+
+@app.command("audit")
+def audit(sample: int = 15, prompt: str = ""):
+    """Self-check pass: the agent reviews a random sample of stored cards and fixes defects."""
+    s = get_settings()
+    with closing(store.connect(s.db_path)) as conn:
+        if not _content_count(conn):
+            typer.echo("no cards to audit; run generate first")
+            raise typer.Abort()
+        agent = build_agent(s, s.db_path, extra_prompt=prompt, audit=True)
+        result = agent.run_sync(
+            f"Audit {sample} cards using review_sample, fix clear defects, then report.",
+            deps=Deps(db_path=s.db_path, model_name=s.litellm_model or "unknown"),
+            usage_limits=UsageLimits(request_limit=60),
+        )
+        typer.echo(result.output)
+        typer.echo(f"usage: {result.usage}")
+        _report_tool_rejects(result)
