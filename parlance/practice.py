@@ -25,18 +25,7 @@ from google.genai import types
 from . import store
 
 LIVE_MODEL = "gemini-3.8-live"
-
-DRILL_PERSONA = """Jsi trenér polštiny pro českého studenta (začátečník+).
-
-Otevři session otázkou, co chce dnes trénovat — nebo navrhni scénář podle
-minulých chyb (digest níže). Typická scéna: "jdeš do obchodu, potřebuješ
-poprosit prodavačku o…". Nech studenta mluvit polsky; když neví, řekne česky
-("jak mám začít?") — odpověz česky, dej mu přesnou polskou frázi, a nech ho
-opakovat, dokud to nesedí. Chyby opravuj česky, stručně, a vždy ho nech větu
-zopakovat správně. Když udělá stejnou chybu dvakrát, zaznamenej ji přes
-log_error. Používej get_practice_targets na začátku, když potřebuješ slovíčka
-na procvičení. Odpovídej stručně (1-3 věty). Na konci (uslyšíš "konec" nebo uživatel píše /end) shrň do
-save_session_summary: co se trénovalo, hlavní chyby, co příště."""
+PROMPT_PATH = Path(__file__).parent / "prompts" / "practice.md"
 
 
 @dataclass
@@ -78,15 +67,15 @@ def function_declarations() -> list[dict]:
     return [
         {
             "name": "get_practice_targets",
-            "description": "Vrátí nedávná slovíčka (lemma, překlad, vzorová věta) na procvičení.",
+            "description": "Recent vocabulary cards (lemma, gloss, example sentence) to drill.",
             "parameters": {
                 "type": "OBJECT",
-                "properties": {"n": {"type": "INTEGER", "description": "kolik, ~10"}},
+                "properties": {"n": {"type": "INTEGER", "description": "how many, ~10"}},
             },
         },
         {
             "name": "log_error",
-            "description": "Zaznamenej opakovanou chybu studenta: typ chyby, špatný tvar, správný tvar.",
+            "description": "Record a repeated learner mistake: error pattern, wrong form, correct form.",
             "parameters": {
                 "type": "OBJECT",
                 "properties": {
@@ -100,7 +89,7 @@ def function_declarations() -> list[dict]:
         },
         {
             "name": "save_session_summary",
-            "description": "Na závěr session: stručné shrnutí (co se trénovalo, chyby, doporučení).",
+            "description": "End of session: short summary (what was trained, mistakes, recommendations).",
             "parameters": {
                 "type": "OBJECT",
                 "properties": {"summary": {"type": "STRING"}},
@@ -125,6 +114,14 @@ async def run_practice(
     with closing(store.connect(s.db_path)) as conn:
         session_id = store.open_practice_session(conn, LIVE_MODEL)
         digest = store.practice_digest(conn)
+    from .agent import LANG_NAMES
+
+    instructions = (
+        PROMPT_PATH.read_text(encoding="utf-8")
+        .replace("{KNOWN}", LANG_NAMES.get(s.known_lang, s.known_lang))
+        .replace("{TARGET}", LANG_NAMES.get(s.target_lang, s.target_lang))
+        .replace("{DIGEST}", digest)
+    )
     tools = PracticeTools(conn_path=s.db_path, session_id=session_id)
     transcript = (transcript_dir or s.db_path.parent / "practice") / f"{session_id}.jsonl"
     transcript.parent.mkdir(parents=True, exist_ok=True)
@@ -132,7 +129,7 @@ async def run_practice(
     client = genai.Client(api_key=s.gemini_api_key)
     cfg = types.LiveConnectConfig(
         response_modalities=[types.Modality.AUDIO],
-        system_instruction=DRILL_PERSONA + f"\n\n## Digest z minulých sessions\n{digest}",
+        system_instruction=instructions,
         input_audio_transcription=types.AudioTranscriptionConfig(),
         output_audio_transcription=types.AudioTranscriptionConfig(),
         tools=[{"function_declarations": function_declarations()}],
@@ -162,7 +159,7 @@ async def run_practice(
                     )
                     if fc.name == "save_session_summary":
                         stats["summary"] = True
-                print(f"[nástroj: {', '.join(fc.name or '?' for fc in calls)}]")
+                print(f"[tool: {', '.join(fc.name or '?' for fc in calls)}]")
                 await session.send_tool_response(function_responses=responses)
                 continue  # the tool response triggers more model output; keep consuming
             sc = msg.server_content
@@ -173,7 +170,9 @@ async def run_practice(
         return "".join(pieces).strip()
 
     async with client.aio.live.connect(model=LIVE_MODEL, config=cfg) as session:
-        print(f"[practice #{session_id}] připojeno. Piš česky nebo polsky; '/end' pro konec.")
+        print(
+            f"[practice #{session_id}] connected. Type Czech for help or Polish to drill; /end to quit."
+        )
         try:
             while True:
                 line = await next_line()
@@ -183,14 +182,14 @@ async def run_practice(
                 reply = await asyncio.wait_for(consume_turn(session), timeout=120)
                 stats["turns"] += 1
                 if reply:
-                    print(f"trenér> {reply}")
+                    print(f"coach> {reply}")
         except KeyboardInterrupt:
-            print("\n[ukončeno uživatelem]")
+            print("\n[ended by user]")
         if not stats["summary"]:
             try:
                 async with asyncio.timeout(60):
                     await session.send_realtime_input(
-                        text="Session končí — zavolej teď save_session_summary s krátkým shrnutím."
+                        text="The session is ending — call save_session_summary now with a short summary."
                     )
                     await consume_turn(session)
             except TimeoutError:
@@ -198,5 +197,5 @@ async def run_practice(
     if not stats["summary"]:
         with closing(store.connect(s.db_path)) as conn:
             store.close_practice_session(conn, session_id, "")
-        print("[practice] bez shrnutí, uložen jen transkript:", transcript)
+        print("[practice] no summary saved, transcript only:", transcript)
     return stats
