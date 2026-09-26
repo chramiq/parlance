@@ -67,6 +67,24 @@ language practice, non-sensitive by construction).
 No mobile, no Anki-write-back, no real-chat ingestion (privacy wall from the
 vocab discussion stands), no multi-learner, no semantic/vector memory.
 
+## Probe results (2026-09-26, P0)
+
+- Live model id: `gemini-3.8-live` (Extended Thinking variant exists;
+  AI Studio free tier = unlimited requests, 65K TPM). `generateContent` on
+  `gemini-3.8-flash` is hard-limited (~20 req/day) — never use it for probes.
+- Live output is AUDIO-ONLY: TEXT response modality is rejected server-side.
+  Text layer comes via `output_audio_transcription`; user speech via
+  `input_transcription`. Implication: the planned gateway-whisper STT for the
+  voice layer is obsolete — Live transcribes both directions natively. P3
+  simplifies to audio plumbing + transcriptions.
+- Text-in via `send_realtime_input(text=...)` works; ~6.5 s/turn serial
+  (audio generation dominates). Batch card generation thereby confirmed as
+  staying on the gateway; Live translations/grading are consumed in-session
+  where audio is the product anyway.
+- Trouble-word quality: utíkat/hledat/zavézt/dávat pozor correct, cholera
+  marginal (sakra missed), one awkward example sentence — fabrication-resistant,
+  not register-perfect.
+
 ## Verification
 
 Spike: one scripted scenario run end-to-end (PTT → drill → forced retry →

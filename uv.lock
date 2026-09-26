@@ -1374,6 +1374,7 @@ source = { editable = "." }
 dependencies = [
     { name = "edge-tts" },
     { name = "genanki" },
+    { name = "google-genai" },
     { name = "httpx" },
     { name = "pydantic-ai" },
     { name = "pydantic-settings" },
@@ -1393,6 +1394,7 @@ dev = [
 requires-dist = [
     { name = "edge-tts", specifier = ">=7" },
     { name = "genanki", specifier = ">=0.13" },
+    { name = "google-genai", specifier = ">=2.22.0" },
     { name = "httpx", specifier = ">=0.28.1" },
     { name = "pydantic-ai", specifier = ">=2" },
     { name = "pydantic-settings", specifier = ">=2" },
