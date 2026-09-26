@@ -90,6 +90,19 @@ CREATE TABLE IF NOT EXISTS lexicon_words (
     word TEXT NOT NULL,
     PRIMARY KEY (lang, word)
 ) WITHOUT ROWID;
+CREATE TABLE IF NOT EXISTS personal_words (
+    lang TEXT NOT NULL,
+    lemma TEXT NOT NULL,
+    count INTEGER NOT NULL,
+    status TEXT NOT NULL DEFAULT 'pending',
+    updated_at TEXT NOT NULL,
+    PRIMARY KEY (lang, lemma)
+);
+CREATE TABLE IF NOT EXISTS chat_seen (
+    lang TEXT NOT NULL,
+    msg_hash TEXT NOT NULL,
+    PRIMARY KEY (lang, msg_hash)
+) WITHOUT ROWID;
 """
 
 
@@ -511,3 +524,79 @@ def meta_get(conn: sqlite3.Connection, key: str) -> dict | None:
     """Fetch a meta document, or None."""
     row = conn.execute("SELECT value FROM meta WHERE key=?", (key,)).fetchone()
     return json.loads(row["value"]) if row else None
+
+
+def chat_seen_hashes(conn: sqlite3.Connection, lang: str) -> set[str]:
+    """Message hashes already imported for lang (idempotency set)."""
+    return {r[0] for r in conn.execute("SELECT msg_hash FROM chat_seen WHERE lang=?", (lang,))}
+
+
+def mark_chat_seen(conn: sqlite3.Connection, lang: str, hashes: list[str]) -> int:
+    """Record newly imported message hashes. Returns how many were new.
+
+    No commit: pairs with upsert_personal_words in one import transaction.
+    """
+    before = conn.total_changes
+    conn.executemany(
+        "INSERT OR IGNORE INTO chat_seen (lang, msg_hash) VALUES (?, ?)",
+        [(lang, h) for h in hashes],
+    )
+    return conn.total_changes - before
+
+
+def upsert_personal_words(
+    conn: sqlite3.Connection, lang: str, counts: dict[str, int]
+) -> tuple[int, int]:
+    """Add chat counts onto personal words; new lemmas start pending.
+
+    Existing statuses are never reset. No commit: pairs with
+    mark_chat_seen in one import transaction.
+
+    Returns:
+        (new lemmas, updated lemmas).
+    """
+    ts = now()
+    new = updated = 0
+    for lemma, c in counts.items():
+        cur = conn.execute(
+            "UPDATE personal_words SET count = count + ?, updated_at = ? WHERE lang = ? AND lemma = ?",
+            (c, ts, lang, lemma),
+        )
+        if cur.rowcount:
+            updated += 1
+        else:
+            conn.execute(
+                "INSERT INTO personal_words (lang, lemma, count, updated_at) VALUES (?, ?, ?, ?)",
+                (lang, lemma, c, ts),
+            )
+            new += 1
+    journal(
+        conn,
+        "chats:count",
+        None,
+        {"lang": lang, "new_lemmas": new, "updated_lemmas": updated},
+    )
+    return new, updated
+
+
+def list_personal_words(
+    conn: sqlite3.Connection, lang: str, status: str = "pending", limit: int = 50
+) -> list[sqlite3.Row]:
+    """Personal words for lang in chat-frequency order."""
+    return list(
+        conn.execute(
+            "SELECT lemma, count, status FROM personal_words WHERE lang=? AND status=?"
+            " ORDER BY count DESC, lemma LIMIT ?",
+            (lang, status, limit),
+        )
+    )
+
+
+def personal_words_stats(conn: sqlite3.Connection, lang: str) -> dict[str, int]:
+    """Personal-word counts per status."""
+    return {
+        row["status"]: row["n"]
+        for row in conn.execute(
+            "SELECT status, COUNT(*) n FROM personal_words WHERE lang=? GROUP BY status", (lang,)
+        )
+    }

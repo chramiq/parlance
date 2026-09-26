@@ -42,3 +42,4 @@ answers don't work, and the system built instead.
 | 0004 | [Model strategy: LiteLLM gateway, one model, output-mode ladder, thinking off for JSON](0004-model-strategy.md) |
 | 0005 | [The agent: tool-argument schemas as the validation boundary, restart-loop driver, pair-profile init](0005-agent-design.md) |
 | 0006 | [Practice subsystem: voice drills with persistent learner memory](0006-practice-design.md) |
+| 0007 | [Personal wordlist from chat exports: word-bag ingestion behind a public-frequency gate](0007-personal-wordlist-ingestion.md) |

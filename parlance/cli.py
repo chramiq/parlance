@@ -2,6 +2,8 @@
 
 import json
 from contextlib import closing
+from pathlib import Path
+from typing import Annotated
 
 import typer
 from pydantic_ai import UsageLimitExceeded, UsageLimits
@@ -15,6 +17,8 @@ worklist_app = typer.Typer(no_args_is_help=True, help="Build and inspect the lem
 app.add_typer(worklist_app, name="worklist")
 deck_app = typer.Typer(no_args_is_help=True, help="Assemble the Anki deck from stored cards.")
 app.add_typer(deck_app, name="deck")
+chats_app = typer.Typer(no_args_is_help=True, help="Import personal chats into a private wordlist.")
+app.add_typer(chats_app, name="chats")
 
 
 @worklist_app.command("build")
@@ -260,6 +264,47 @@ def practice_log(
             typer.echo(f"  {e['pattern']}: {e['wrong']} -> {e['right']}{lemma}")
     if sess["summary"]:
         typer.echo(f"--- summary ---\n  {sess['summary']}")
+
+
+@chats_app.command("import")
+def chats_import(
+    paths: Annotated[list[Path], typer.Argument(help="Extracted Meta export directories.")],
+    lang: str = typer.Option("", "--lang", help="Gate language (default: KNOWN_LANG from .env)."),
+):
+    """Accumulate the owner's own words from chat exports (idempotent, multi-export)."""
+    from .chats import meta
+
+    s = get_settings()
+    lang = lang or s.known_lang
+    typer.echo(
+        "WARNING: chat exports contain your full personal history. Do not read\n"
+        "through these files -- let parlance do it: it keeps only single common\n"
+        "public words and never stores sentences."
+    )
+    with closing(store.connect(s.db_path)) as conn:
+        stats = meta.import_chats(
+            conn, [Path(p) for p in paths], lang, s.data_dir / "wordlist" / f"{lang}_50k.txt"
+        )
+        typer.echo(" ".join(f"{k}={v}" for k, v in stats.items()))
+        typer.echo(store.personal_words_stats(conn, lang))
+
+
+@chats_app.command("list")
+def chats_list(
+    limit: int = typer.Option(50, help="Rows to show (0 = all)."),
+    status: str = "pending",
+    lang: str = "",
+):
+    """Show personal words in chat-frequency order."""
+    s = get_settings()
+    lang = lang or s.known_lang
+    with closing(store.connect(s.db_path)) as conn:
+        rows = store.list_personal_words(conn, lang, status=status, limit=limit or -1)
+    typer.echo(f"{'count':>6}  lemma")
+    for r in rows:
+        typer.echo(f"{r['count']:>6}  {r['lemma']}")
+    if not rows:
+        typer.echo(f"(no personal words with status={status})")
 
 
 @app.command("audit")

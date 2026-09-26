@@ -12,7 +12,7 @@ GUIDs so reimports update in place.
 
 | Path | What lives there |
 |---|---|
-| `parlance/cli.py` | typer CLI: `worklist`, `init`, `generate`, `deck build`, `audit`, `lexicon`, `llm-hints`, `practice`, `practice-log` |
+| `parlance/cli.py` | typer CLI: `worklist`, `init`, `generate`, `deck build`, `audit`, `lexicon`, `llm-hints`, `chats`, `practice`, `practice-log` |
 | `parlance/config.py` | pydantic-settings from `.env`: LLM endpoint, Gemini key, language pair, paths |
 | `parlance/store.py` | SQLite source of truth: lemmas, content, changes journal, lexicon hints/words, practice sessions |
 | `parlance/worklist.py` | frequency list -> simplemma lemma queue, dedup vs store |
@@ -22,9 +22,11 @@ GUIDs so reimports update in place.
 | `parlance/practice.py` | voice drill session over Gemini Live: digest, tools, session lifecycle, transcript |
 | `parlance/deck/` | Anki emission: `model.py` (note types + templates), `build.py` (genanki, GUID/due/media) |
 | `parlance/tts.py` | TTS providers + content-hash audio cache (edge-tts default) |
+| `parlance/chats/` | Meta DIY export ingestion (`meta.py`): the owner's own words -> gated, diacritic-restored, deduped personal wordlist |
 | `parlance/prompts/` | agent instruction files (`vocab.md`, `audit.md`, `practice.md`); profile JSON is rendered in at build time |
 | `docs/` | architecture decision records (`INDEX.md` + one file per ADR) — read these for why |
 | `tests/` | pytest; agents run offline against TestModel/FunctionModel |
+| `scripts/` | probe scripts that ran against real exports/APIs; kept as the reference the parsers were written against |
 | `var/` | all runtime state (gitignored): `parlance.db`, audio cache, chat exports |
 | `TODO.md` | deferred ideas and tasks |
 
@@ -63,8 +65,10 @@ uv run parlance <command>
 ### Workflow
 
 - Features land in a fixed order: research -> probe -> implement -> test ->
-  review -> docs. The probe is a throwaway script capturing real
-  API/file output; code is written against the probe, never from docs alone.
+  review -> docs. The probe captures real API/file output; code is written
+  against the probe, never from docs alone. Probe scripts live in `scripts/`
+  and persist after use — they are the reference the parser was written
+  against.
 - New external-format integrations are probe-first: a temp probe script runs
   against a real export file and the parser is written from the captured
   structure
