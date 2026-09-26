@@ -214,6 +214,18 @@ def lexicon_llm_hints(
     typer.echo(stats)
 
 
+@app.command("practice")
+def practice():
+    """Drill session with the Gemini Live coach (typed I/O; voice lands in P3)."""
+    import asyncio as _asyncio
+
+    from .practice import run_practice
+
+    s = get_settings()
+    stats = _asyncio.run(run_practice(s))
+    typer.echo(stats)
+
+
 @app.command("audit")
 def audit(sample: int = 15, prompt: str = ""):
     """Self-check pass: the agent reviews a random sample of stored cards and fixes defects."""

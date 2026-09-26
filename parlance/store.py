@@ -67,6 +67,24 @@ CREATE TABLE IF NOT EXISTS lexicon_pairs (
     PRIMARY KEY (target_lang, target, known_lang, known)
 );
 CREATE INDEX IF NOT EXISTS lexicon_pairs_lookup ON lexicon_pairs(target_lang, target, known_lang);
+CREATE TABLE IF NOT EXISTS practice_sessions (
+    id INTEGER PRIMARY KEY,
+    started_at TEXT NOT NULL,
+    ended_at TEXT,
+    model TEXT NOT NULL,
+    scenario TEXT NOT NULL DEFAULT '',
+    summary TEXT NOT NULL DEFAULT ''
+);
+CREATE TABLE IF NOT EXISTS practice_errors (
+    id INTEGER PRIMARY KEY,
+    session_id INTEGER NOT NULL REFERENCES practice_sessions(id),
+    ts TEXT NOT NULL,
+    lemma TEXT,
+    pattern TEXT NOT NULL,
+    wrong TEXT NOT NULL,
+    right TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS practice_errors_session ON practice_errors(session_id);
 """
 
 
@@ -315,6 +333,61 @@ def pair_suggestions(
             (target_lang, known_lang, lemma, limit),
         )
     ]
+
+
+def open_practice_session(conn: sqlite3.Connection, model: str, scenario: str = "") -> int:
+    cur = conn.execute(
+        "INSERT INTO practice_sessions (started_at, model, scenario) VALUES (?, ?, ?)",
+        (now(), model, scenario),
+    )
+    conn.commit()
+    assert cur.lastrowid is not None
+    return cur.lastrowid
+
+
+def close_practice_session(conn: sqlite3.Connection, session_id: int, summary: str) -> None:
+    conn.execute(
+        "UPDATE practice_sessions SET ended_at = ?, summary = ? WHERE id = ?",
+        (now(), summary, session_id),
+    )
+    conn.commit()
+
+
+def add_practice_error(
+    conn: sqlite3.Connection,
+    session_id: int,
+    pattern: str,
+    wrong: str,
+    right: str,
+    lemma: str | None = None,
+) -> None:
+    conn.execute(
+        "INSERT INTO practice_errors (session_id, ts, lemma, pattern, wrong, right) VALUES (?,?,?,?,?,?)",
+        (session_id, now(), lemma, pattern, wrong, right),
+    )
+    conn.commit()
+
+
+def practice_digest(conn: sqlite3.Connection, sessions: int = 3, errors: int = 10) -> str:
+    """Text digest for session-open injection: recent summaries + recurring error patterns."""
+    lines = []
+    for r in conn.execute(
+        "SELECT summary FROM practice_sessions WHERE summary != '' ORDER BY id DESC LIMIT ?",
+        (sessions,),
+    ):
+        lines.append(f"- last session: {r['summary'][:200]}")
+    for r in conn.execute(
+        "SELECT pattern, COUNT(*) n FROM practice_errors GROUP BY pattern ORDER BY n DESC LIMIT 5"
+    ):
+        lines.append(f"- recurring error pattern: {r['pattern']} ({r['n']}x)")
+    for r in conn.execute(
+        "SELECT lemma, wrong, right FROM practice_errors ORDER BY id DESC LIMIT ?", (errors,)
+    ):
+        lines.append(
+            f"- recent error: {r['wrong']} -> {r['right']}"
+            + (f" [{r['lemma']}]" if r["lemma"] else "")
+        )
+    return "\n".join(lines) if lines else "(no practice history yet)"
 
 
 def sample_generated(conn: sqlite3.Connection, n: int) -> list[dict]:

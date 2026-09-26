@@ -68,7 +68,7 @@ async def main() -> None:
                 if sc.output_transcription and sc.output_transcription.text:
                     print(f"GEMINI: {sc.output_transcription.text}")
                 if sc.model_turn:
-                    for part in sc.model_turn.parts:
+                    for part in sc.model_turn.parts or []:
                         if part.inline_data and part.inline_data.data:
                             out_q.put_nowait(part.inline_data.data)
 
