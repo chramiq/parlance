@@ -214,39 +214,42 @@ async def run_practice_voice(settings, transcript_dir: Path | None = None) -> di
         print(f"[practice #{session_id}] listening. Speak; Ctrl+C to finish.")
 
         async def recv():
+            # session.receive() is a PER-TURN stream: it ends at turn_complete
+            # and must be called again for the next turn (official example pattern).
             you: list[str] = []
             coach: list[str] = []
-            async for msg in session.receive():
-                with transcript.open("a", encoding="utf-8") as f:
-                    f.write(msg.model_dump_json() + "\n")
-                if msg.tool_call:
-                    responses = _handle_tool_call(tools, msg.tool_call, stats)
-                    await session.send_tool_response(function_responses=responses)
-                    continue
-                sc = msg.server_content
-                if not sc:
-                    continue
-                if sc.interrupted:
-                    while not out_q.empty():
-                        out_q.get_nowait()
-                    print("[interrupted]")
-                if sc.input_transcription and sc.input_transcription.text:
-                    you.append(sc.input_transcription.text)
-                if sc.output_transcription and sc.output_transcription.text:
-                    coach.append(sc.output_transcription.text)
-                if sc.model_turn:
-                    for part in sc.model_turn.parts or []:
-                        if part.inline_data and part.inline_data.data:
-                            out_q.put_nowait(part.inline_data.data)
-                if sc.turn_complete:
-                    stats["turns"] += 1
-                    u, c = "".join(you).strip(), "".join(coach).strip()
-                    if u:
-                        print(f"you> {u}")
-                    if c:
-                        print(f"coach> {c}")
-                    you.clear()
-                    coach.clear()
+            while True:
+                async for msg in session.receive():
+                    with transcript.open("a", encoding="utf-8") as f:
+                        f.write(msg.model_dump_json() + "\n")
+                    if msg.tool_call:
+                        responses = _handle_tool_call(tools, msg.tool_call, stats)
+                        await session.send_tool_response(function_responses=responses)
+                        continue
+                    sc = msg.server_content
+                    if not sc:
+                        continue
+                    if sc.interrupted:
+                        while not out_q.empty():
+                            out_q.get_nowait()
+                        print("[interrupted]")
+                    if sc.input_transcription and sc.input_transcription.text:
+                        you.append(sc.input_transcription.text)
+                    if sc.output_transcription and sc.output_transcription.text:
+                        coach.append(sc.output_transcription.text)
+                    if sc.model_turn:
+                        for part in sc.model_turn.parts or []:
+                            if part.inline_data and part.inline_data.data:
+                                out_q.put_nowait(part.inline_data.data)
+                    if sc.turn_complete:
+                        stats["turns"] += 1
+                        u, c = "".join(you).strip(), "".join(coach).strip()
+                        if u:
+                            print(f"you> {u}")
+                        if c:
+                            print(f"coach> {c}")
+                        you.clear()
+                        coach.clear()
 
         with sd.RawInputStream(
             samplerate=16000, channels=1, dtype="int16", blocksize=2048, callback=on_mic
@@ -259,8 +262,9 @@ async def run_practice_voice(settings, transcript_dir: Path | None = None) -> di
             except (KeyboardInterrupt, asyncio.CancelledError):
                 pass
             finally:
-                for t in (pump, play, listen):
+                for t in (pump, listen):
                     t.cancel()
+                play.cancel()  # may leave the audio thread mid-write; harmless at teardown
         if not stats["summary"]:
             try:
                 async with asyncio.timeout(60):
