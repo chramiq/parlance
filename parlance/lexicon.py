@@ -199,18 +199,64 @@ async def build_llm_hints(
         queue.put_nowait(pending[i : i + batch])
     stats = {"turns": 0, "rows": 0, "failed_batches": 0}
 
-    async def worker() -> None:
+    async def worker(worker_id: int) -> None:
+        from google import genai
+        from google.genai import types
+
+        cfg = types.LiveConnectConfig(
+            response_modalities=[types.Modality.AUDIO],
+            system_instruction=(
+                f"Jsi prekladac {settings.target_lang}->{settings.known_lang}. "
+                f"Na ocislovany seznam slov odpovez POUZE JSON polem ve stejnem poradi: "
+                f'[["preklad1","preklad2"], ...]. 1-3 hovorove preklady, zadny jiny text.'
+            ),
+            output_audio_transcription=types.AudioTranscriptionConfig(),
+            temperature=0.2,
+        )
+        client = genai.Client(api_key=settings.gemini_api_key)
+        session = None
+        session_cm = None
         while True:
             try:
                 words = queue.get_nowait()
             except asyncio.QueueEmpty:
-                return
-            slots = await _hint_turn(settings, words)
-            stats["turns"] += 1
+                break
+            slots: list[list[str]] | None = None
+            for attempt in range(4):
+                if session is None:
+                    try:
+                        session_cm = client.aio.live.connect(model=LIVE_HINT_MODEL, config=cfg)
+                        session = await session_cm.__aenter__()
+                    except Exception as e:  # noqa: BLE001 -- quota/connect churn: back off, retry
+                        wait = 15 * (attempt + 1)
+                        log(f"llm-hints: w{worker_id} connect failed ({str(e)[:40]}), wait {wait}s")
+                        await asyncio.sleep(wait)
+                        continue
+                try:
+                    async with asyncio.timeout(60):
+                        await session.send_realtime_input(
+                            text=", ".join(f"{j + 1}. {w}" for j, w in enumerate(words))
+                        )
+                        out: list[str] = []
+                        async for msg in session.receive():
+                            sc = msg.server_content
+                            if sc and sc.output_transcription and sc.output_transcription.text:
+                                out.append(sc.output_transcription.text)
+                            if sc and sc.turn_complete:
+                                break
+                    slots = parse_hint_json("".join(out))
+                    break
+                except Exception as e:  # noqa: BLE001 -- turn failed: drop session, reconnect next try
+                    session = None
+                    session_cm = None
+                    wait = 15 * (attempt + 1)
+                    log(f"llm-hints: w{worker_id} turn failed ({str(e)[:40]}), wait {wait}s")
+                    await asyncio.sleep(wait)
             if not slots:
                 stats["failed_batches"] += 1
-                log(f"llm-hints: batch failed ({' / '.join(words[:3])}...), stays pending")
+                log(f"llm-hints: batch gave up ({' / '.join(words[:3])}...), stays pending")
                 continue
+            stats["turns"] += 1
             rows = [
                 (word, gloss, LIVE_HINT_SOURCE)
                 for word, glosses in zip(words, slots)
@@ -219,6 +265,8 @@ async def build_llm_hints(
             stats["rows"] += store.merge_pairs(
                 conn, settings.target_lang, settings.known_lang, rows
             )
+        if session_cm is not None:
+            await session_cm.__aexit__(None, None, None)
 
-    await asyncio.gather(*(worker() for _ in range(workers)))
+    await asyncio.gather(*(worker(w) for w in range(workers)))
     return {"lemmas": len(pending), **stats}
