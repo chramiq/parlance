@@ -233,6 +233,34 @@ def practice(
     typer.echo(stats)
 
 
+@app.command("practice-log")
+def practice_log(
+    session_id: int | None = typer.Argument(None, help="Session id; latest when omitted."),
+):
+    """Replay a practice session: turns (you/coach), logged errors, summary."""
+    from .practice import transcript_turns
+
+    s = get_settings()
+    with closing(store.connect(s.db_path)) as conn:
+        sess = store.get_practice_session(conn, session_id)
+        if not sess:
+            typer.echo("no practice sessions yet")
+            return
+        errors = store.session_errors(conn, sess["id"])
+    sid = sess["id"]
+    typer.echo(f"=== practice #{sid} | {sess['started_at']} | model {sess['model']} ===")
+    transcript = s.db_path.parent / "practice" / f"{sid}.jsonl"
+    for who, text in transcript_turns(transcript):
+        typer.echo(f"{who:>5}> {text}")
+    if errors:
+        typer.echo("--- logged errors ---")
+        for e in errors:
+            lemma = f" [{e['lemma']}]" if e["lemma"] else ""
+            typer.echo(f"  {e['pattern']}: {e['wrong']} -> {e['right']}{lemma}")
+    if sess["summary"]:
+        typer.echo(f"--- summary ---\n  {sess['summary']}")
+
+
 @app.command("audit")
 def audit(sample: int = 15, prompt: str = ""):
     """Self-check pass: the agent reviews a random sample of stored cards and fixes defects."""

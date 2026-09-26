@@ -55,3 +55,34 @@ def test_tools_roundtrip(tmp_path):
 def test_declarations_match_dispatch():
     names = {d["name"] for d in function_declarations()}
     assert names == {"get_practice_targets", "log_error", "save_session_summary"}
+
+
+def test_transcript_turns_aggregates_chunks(tmp_path):
+    from parlance.practice import transcript_turns
+
+    msgs = [
+        {"server_content": {"input_transcription": {"text": "Dzień do"}}},
+        {"server_content": {"input_transcription": {"text": "bry."}}},
+        {"server_content": {"output_transcription": {"text": "Ahoj, "}}},
+        {"server_content": {"output_transcription": {"text": "co trénujeme?"}}},
+        {"server_content": {"turn_complete": True}},
+        {"server_content": {"input_transcription": {"text": "Kawę."}}},
+        {"server_content": {"model_turn": {"parts": [{"inline_data": {"data": "eA=="}}]}}},
+    ]
+    path = tmp_path / "1.jsonl"
+    path.write_text("\n".join(__import__("json").dumps(m) for m in msgs), encoding="utf-8")
+    assert transcript_turns(path) == [
+        ("you", "Dzień dobry."),
+        ("coach", "Ahoj, co trénujeme?"),
+        ("you", "Kawę."),
+    ]
+
+
+def test_session_lookup_helpers(tmp_path):
+    conn = store.connect(tmp_path / "t.db")
+    assert store.get_practice_session(conn) is None
+    sid = store.open_practice_session(conn, "m")
+    store.add_practice_error(conn, sid, "p", "w", "r")
+    sess = store.get_practice_session(conn)
+    assert sess["id"] == sid
+    assert store.session_errors(conn, sid)[0]["pattern"] == "p"

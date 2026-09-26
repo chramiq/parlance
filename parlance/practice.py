@@ -99,6 +99,38 @@ def function_declarations() -> list[dict]:
     ]
 
 
+def transcript_turns(path: Path) -> list[tuple[str, str]]:
+    """Aggregate consecutive transcription chunks from a session transcript into (who, text) turns."""
+    turns: list[tuple[str, str]] = []
+    cur_who: str | None = None
+    buf: list[str] = []
+
+    def flush() -> None:
+        nonlocal cur_who
+        if buf and cur_who:
+            turns.append((cur_who, "".join(buf).strip()))
+        buf.clear()
+
+    if not path.exists():
+        return turns
+    for line in path.read_text(encoding="utf-8").splitlines():
+        try:
+            sc = json.loads(line).get("server_content") or {}
+        except json.JSONDecodeError:
+            continue
+        it = (sc.get("input_transcription") or {}).get("text")
+        ot = (sc.get("output_transcription") or {}).get("text")
+        who = "you" if it else ("coach" if ot else None)
+        if who is None:
+            continue
+        if who != cur_who:
+            flush()
+            cur_who = who
+        buf.append(str(it or ot or ""))
+    flush()
+    return turns
+
+
 def dispatch(tools: PracticeTools, name: str, args: dict):
     return getattr(tools, name)(**args)
 

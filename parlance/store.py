@@ -390,6 +390,24 @@ def practice_digest(conn: sqlite3.Connection, sessions: int = 3, errors: int = 1
     return "\n".join(lines) if lines else "(no practice history yet)"
 
 
+def get_practice_session(conn: sqlite3.Connection, session_id: int | None = None):
+    """The given session, or the latest one. None when no sessions exist."""
+    if session_id is not None:
+        return conn.execute(
+            "SELECT * FROM practice_sessions WHERE id = ?", (session_id,)
+        ).fetchone()
+    return conn.execute("SELECT * FROM practice_sessions ORDER BY id DESC LIMIT 1").fetchone()
+
+
+def session_errors(conn: sqlite3.Connection, session_id: int):
+    return list(
+        conn.execute(
+            "SELECT pattern, wrong, right, lemma FROM practice_errors WHERE session_id = ? ORDER BY id",
+            (session_id,),
+        )
+    )
+
+
 def sample_generated(conn: sqlite3.Connection, n: int) -> list[dict]:
     """Up to n random generated cards with full payloads, for audit passes."""
     rows = conn.execute(
