@@ -123,6 +123,16 @@ def generate(
         while submitted < count:
             before = _content_count(conn)
             remaining = min(count - submitted, batch)
+            if not random_sample and s.gemini_api_key:
+                import asyncio as _aio
+
+                from .lexicon import hint_lemmas, lemmas_missing_hints
+
+                upcoming = [r["lemma"] for r in store.poll_untranslated(conn, remaining)]
+                missing = lemmas_missing_hints(conn, upcoming)
+                if missing:
+                    rows = _aio.run(hint_lemmas(conn, s, missing))
+                    typer.echo(f"prefill: hinted {len(missing)} lemmas ({rows} rows)")
             try:
                 result = agent.run_sync(
                     f"Submit {remaining} new vocabulary cards following your "
@@ -188,8 +198,9 @@ def lexicon_build(
 def lexicon_llm_hints(
     batch: int = 20,
     limit: int | None = typer.Option(None, help="Process at most this many lemmas (testing)."),
+    workers: int = 4,
 ):
-    """Backfill gemini-live translation hints for every lemma lacking one (resumable)."""
+    """Backfill gemini-live translation hints for every lemma lacking one (parallel, resumable)."""
     import asyncio
 
     from .lexicon import build_llm_hints as _llm
@@ -199,7 +210,7 @@ def lexicon_llm_hints(
         typer.echo("GEMINI_API_KEY missing in .env")
         raise typer.Abort()
     with closing(store.connect(s.db_path)) as conn:
-        stats = asyncio.run(_llm(conn, s, batch=batch, limit=limit))
+        stats = asyncio.run(_llm(conn, s, batch=batch, limit=limit, workers=workers))
     typer.echo(stats)
 
 
