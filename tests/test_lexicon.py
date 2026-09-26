@@ -97,6 +97,65 @@ def fake_model_capture_poll(captured):
     return fn
 
 
+def test_antifabrication_validator_rejects_nonword(tmp_path):
+    """gloss tokens must be real Czech words; off-hint real words pass with warning only."""
+
+    db = tmp_path / "t.db"
+    conn = store.connect(db)
+    store.add_lemmas(conn, [{"lemma": "uciekać", "freq_rank": 1, "freq": 9, "forms": ["ucieka"]}])
+    store.merge_pairs(conn, "pl", "cs", [("uciekać", "utíkat", "gemini-live")])
+    store.replace_words(conn, "cs", {"utíkat", "zmizet"})
+
+    bad_draft = {
+        "lemma": "uciekać",
+        "pos": "sloveso",
+        "variants": [{"gloss": "úteka", "style": "neutral"}],
+        "preferred": 0,
+        "examples": [{"target": "Kočka ucieka.", "known": "Kočka utíká.", "cloze": "Kočka [...]."}],
+        "false_friend_note": "",
+    }
+    # 'zmizet' is a real word in the validation lexicon but not among hint candidates
+    good_draft = {**bad_draft, "variants": [{"gloss": "zmizet", "style": "neutral"}]}
+
+    def scripted(messages, info: AgentInfo) -> ModelResponse:
+        names = [
+            p.tool_name
+            for m in messages
+            for p in getattr(m, "parts", [])
+            if isinstance(p, ToolCallPart)
+        ]
+        submits = names.count("submit_translations")
+        if "poll_vocab" not in names:
+            return ModelResponse(parts=[ToolCallPart("poll_vocab", {"n": 1})])
+        if submits == 0:
+            return ModelResponse(
+                parts=[ToolCallPart("submit_translations", {"drafts": [bad_draft]})]
+            )
+        if submits == 1:
+            # fabricated token rejected; ModelRetry prompt names the bad token
+            retried = any(
+                "not a Czech word" in str(p) and "úteka" in str(p)
+                for m in messages
+                for p in getattr(m, "parts", [])
+                if "Retry" in type(p).__name__
+            )
+            assert retried
+            return ModelResponse(
+                parts=[ToolCallPart("submit_translations", {"drafts": [good_draft]})]
+            )
+        return ModelResponse(parts=[TextPart("done")])
+
+    from parlance.agent import Deps, build_agent
+
+    agent = build_agent(
+        Settings(known_lang="cs", target_lang="pl"), db, model=FunctionModel(scripted)
+    )
+    result = agent.run_sync("go", deps=Deps(db_path=db, model_name="testmodel"))
+    assert "done" in result.output
+    row = store.get_content(conn, "uciekać")
+    assert row is not None and row["preferred_gloss"] == "zmizet"  # real-but-off-hint passes
+
+
 def test_poll_attaches_suggestions(tmp_path):
     db = tmp_path / "t.db"
     conn = store.connect(db)

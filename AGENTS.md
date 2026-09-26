@@ -72,7 +72,7 @@ uv run parlance <command>
   API/file output; code is written against the probe, never from docs alone.
 - New external-format integrations are probe-first: a temp probe script runs
   against a real export file and the parser is written from the captured
-  structure (see docs/0001).
+  structure
 - When the user states a durable decision or preference, record it:
   behavior/rules here in AGENTS.md, task deferrals in TODO.md.
 - After completing a change and running the checks, ask whether to spawn the
@@ -107,7 +107,7 @@ uv run parlance <command>
 
 ### Research
 
-- Confirm current APIs before writing code against fast-moving libraries.
+- Always confirm current APIs before writing code against libraries.
   Pydantic ecosystem: fetch `https://pydantic.dev/docs/ai/llms.txt`, then
   individual pages as `.md`; Context7 as fallback.
 - `gh` is authenticated for GitHub research.

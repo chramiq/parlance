@@ -85,6 +85,11 @@ CREATE TABLE IF NOT EXISTS practice_errors (
     right TEXT NOT NULL
 );
 CREATE INDEX IF NOT EXISTS practice_errors_session ON practice_errors(session_id);
+CREATE TABLE IF NOT EXISTS lexicon_words (
+    lang TEXT NOT NULL,
+    word TEXT NOT NULL,
+    PRIMARY KEY (lang, word)
+) WITHOUT ROWID;
 """
 
 
@@ -388,6 +393,25 @@ def practice_digest(conn: sqlite3.Connection, sessions: int = 3, errors: int = 1
             + (f" [{r['lemma']}]" if r["lemma"] else "")
         )
     return "\n".join(lines) if lines else "(no practice history yet)"
+
+
+def replace_words(conn: sqlite3.Connection, lang: str, words: set[str]) -> int:
+    """Replace the full wordlist for a language (validation lexicon)."""
+    conn.execute("DELETE FROM lexicon_words WHERE lang = ?", (lang,))
+    conn.executemany(
+        "INSERT INTO lexicon_words (lang, word) VALUES (?, ?)", [(lang, w) for w in words]
+    )
+    conn.commit()
+    return len(words)
+
+
+def lexicon_contains(conn: sqlite3.Connection, lang: str, word: str) -> bool:
+    return (
+        conn.execute(
+            "SELECT 1 FROM lexicon_words WHERE lang = ? AND word = ?", (lang, word)
+        ).fetchone()
+        is not None
+    )
 
 
 def get_practice_session(conn: sqlite3.Connection, session_id: int | None = None):

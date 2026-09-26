@@ -219,7 +219,7 @@ async def run_practice_voice(settings, transcript_dir: Path | None = None) -> di
                 chunk = asyncio.run_coroutine_threadsafe(out_q.get(), loop).result()
                 st.write(chunk)
 
-    # startup mic meter: 1.5 s of raw level so a dead input shows immediately
+    # startup mic meter: 3 s during which the user is asked to speak, so a dead input shows immediately
     def mic_peak() -> int:
         import time
 
@@ -231,15 +231,17 @@ async def run_practice_voice(settings, transcript_dir: Path | None = None) -> di
             blocksize=1600,
             callback=lambda d, f, t, s_: chunks.append(bytes(d)),
         ):
-            time.sleep(1.5)
+            time.sleep(3.0)
         peak = 0
         for c in chunks:
             for i in range(0, len(c) - 1, 2):
                 peak = max(peak, abs(int.from_bytes(c[i : i + 2], "little", signed=True)))
         return peak
 
+    print("[mic check: say something for 3 seconds...]", flush=True)
     peak = await asyncio.to_thread(mic_peak)
-    print(f"[mic level {peak}] (0-500 ~ quiet room is fine, 0 across speech = dead input)")
+    status = "ok" if peak > 500 else "SUSPICIOUSLY QUIET — check your input device"
+    print(f"[mic level {peak} — {status}]")
 
     client = genai.Client(api_key=s.gemini_api_key)
     async with client.aio.live.connect(**_connect_kwargs(s, instructions)) as session:

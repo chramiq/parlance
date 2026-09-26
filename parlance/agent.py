@@ -6,6 +6,7 @@ own output stays plain text. See docs/0005.
 
 import json
 import re
+import sqlite3
 from contextlib import closing
 from dataclasses import dataclass
 from pathlib import Path
@@ -150,6 +151,19 @@ def validate_cloze(ex: Example, corpus_forms: list[str]) -> None:
         raise ModelRetry(
             f"cloze must be exactly {cloze!r} (sentence with {hits[0]!r} replaced by [...])"
         )
+
+
+def unknown_gloss_token(conn: sqlite3.Connection, lang: str, gloss: str) -> str | None:
+    """First token of the gloss missing from the language's validation lexicon, if any.
+
+    Anti-fabrication tier: invented words ('úteka', 'prda', 'dovozit') are not
+    in any lexicon; real but obscure/gloss-style choices pass because they are
+    words. Every token of a multiword gloss must check out ('je mi líto').
+    """
+    for tok in (t.strip('.,!?"()') for t in gloss.lower().split()):
+        if tok and not tok.isdigit() and not store.lexicon_contains(conn, lang, tok):
+            return tok
+    return None
 
 
 def _cognate_class(lemma: str, gloss: str, false_friend_note: str) -> str:
@@ -308,6 +322,23 @@ def build_agent(
                     for ex in draft.examples:
                         validate_cloze(ex, corpus_forms)
                     preferred = draft.variants[draft.preferred].gloss
+                    hints = store.pair_suggestions(conn, draft.lemma, s.known_lang, s.target_lang)
+                    if hints and preferred.lower() not in {h.lower() for h in hints}:
+                        warnings.append(
+                            f"{draft.lemma}: preferred gloss {preferred!r} is not among the suggested"
+                            f" candidates {hints!r}; kept, but the off-list choice needs justification"
+                        )
+                    # anti-fabrication tier: inert until the validation wordlist is built
+                    if conn.execute(
+                        "SELECT 1 FROM lexicon_words WHERE lang = ? LIMIT 1", (s.known_lang,)
+                    ).fetchone():
+                        for v in draft.variants:
+                            bad = unknown_gloss_token(conn, s.known_lang, v.gloss)
+                            if bad:
+                                raise ValueError(
+                                    f"gloss token {bad!r} (in {v.gloss!r}) is not a Czech word;"
+                                    f" check spelling or pick a real one (see suggested_known)"
+                                )
                     duplicates = [
                         r["lemma"]
                         for r in conn.execute(

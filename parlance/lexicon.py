@@ -82,6 +82,38 @@ def build_pairs(
     }
 
 
+CS_50K_URL = (
+    "https://raw.githubusercontent.com/hermitdave/FrequencyWords/master/content/2016/cs/cs_50k.txt"
+)
+
+
+def build_words(conn: sqlite3.Connection, lang: str, cache_dir: Path) -> dict:
+    """Validation lexicon for a language: edition headwords + frequency-list surface forms.
+
+    Headwords alone miss real inflected usage (~21% of legit glosses in the
+    measured hint table); the 50k forms union closes that hole.
+    """
+    words: set[str] = set()
+    with gzip.open(_extract(lang, cache_dir, None), "rt", encoding="utf-8") as f:
+        for line in f:
+            w = (json.loads(line).get("word") or "").strip().lower()
+            if w:
+                words.add(w)
+    forms_path = cache_dir / f"{lang}_50k.txt"
+    if not forms_path.exists():
+        cache_dir.mkdir(parents=True, exist_ok=True)
+        import urllib.request
+
+        urllib.request.urlretrieve(CS_50K_URL, forms_path)
+    with open(forms_path, encoding="utf-8") as f:
+        for line in f:
+            parts = line.split()
+            if parts:
+                words.add(parts[0].strip().lower())
+    written = store.replace_words(conn, lang, words)
+    return {"words_written": written, "sources": ["kaikki-headwords", "50k-forms"]}
+
+
 def parse_hint_json(text: str) -> list[list[str]] | None:
     """Extract the [[...], ...] hint array from a spoken-transcription payload.
 

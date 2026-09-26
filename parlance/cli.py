@@ -182,15 +182,16 @@ def lexicon_build(
         "", help="Folder with pre-downloaded {lang}-extract.jsonl.gz files."
     ),
 ):
-    """Build the translation-hint table from kaikki edition dumps (downloads if missing)."""
+    """Build hint pairs from kaikki dumps + the Czech validation wordlist (downloads if missing)."""
     from pathlib import Path
 
-    from .lexicon import build_pairs
+    from .lexicon import build_pairs, build_words
 
     s = get_settings()
     src = Path(extract_dir) if extract_dir else None
     with closing(store.connect(s.db_path)) as conn:
         stats = build_pairs(conn, s.known_lang, s.target_lang, s.db_path.parent / "lexicon", src)
+        stats["words"] = build_words(conn, s.known_lang, s.db_path.parent / "lexicon")
     typer.echo(stats)
 
 
