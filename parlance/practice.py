@@ -103,19 +103,50 @@ def dispatch(tools: PracticeTools, name: str, args: dict):
     return getattr(tools, name)(**args)
 
 
-async def run_practice(
-    settings, transcript_dir: Path | None = None, lines: list[str] | None = None
-) -> dict:
-    """Drill session against Gemini Live. `lines` lets scripts drive it instead of stdin."""
-    from .config import get_settings  # local import keeps module light for tests
+def _connect_kwargs(s, instructions: str) -> dict:
+    from google.genai import types
 
-    s = settings or get_settings()
+    return {
+        "model": LIVE_MODEL,
+        "config": types.LiveConnectConfig(
+            response_modalities=[types.Modality.AUDIO],
+            system_instruction=instructions,
+            input_audio_transcription=types.AudioTranscriptionConfig(),
+            output_audio_transcription=types.AudioTranscriptionConfig(),
+            realtime_input_config=types.RealtimeInputConfig(
+                turn_coverage="TURN_INCLUDES_ONLY_ACTIVITY"
+            ),
+            tools=[{"function_declarations": function_declarations()}],
+        ),
+    }
+
+
+def _handle_tool_call(tools: PracticeTools, tool_call, stats: dict) -> list:
+    from google.genai import types
+
+    calls = tool_call.function_calls or []
+    responses = []
+    for fc in calls:
+        result = dispatch(tools, fc.name or "", dict(fc.args or {}))
+        stats["tool_calls"] += 1
+        responses.append(
+            types.FunctionResponse(name=fc.name, id=fc.id, response={"result": result})
+        )
+        if fc.name == "save_session_summary":
+            stats["summary"] = True
+    print(f"[tool: {', '.join(fc.name or '?' for fc in calls)}]")
+    return responses
+
+
+def _open(settings_or_none, transcript_dir: Path | None):
+    from .agent import LANG_NAMES
+    from .config import get_settings
+
+    s = settings_or_none or get_settings()
     assert s.gemini_api_key, "GEMINI_API_KEY missing"
     with closing(store.connect(s.db_path)) as conn:
         session_id = store.open_practice_session(conn, LIVE_MODEL)
         digest = store.practice_digest(conn)
-    from .agent import LANG_NAMES
-
     instructions = (
         PROMPT_PATH.read_text(encoding="utf-8")
         .replace("{KNOWN}", LANG_NAMES.get(s.known_lang, s.known_lang))
@@ -125,16 +156,139 @@ async def run_practice(
     tools = PracticeTools(conn_path=s.db_path, session_id=session_id)
     transcript = (transcript_dir or s.db_path.parent / "practice") / f"{session_id}.jsonl"
     transcript.parent.mkdir(parents=True, exist_ok=True)
+    return s, session_id, instructions, tools, transcript
+
+
+async def run_practice_voice(settings, transcript_dir: Path | None = None) -> dict:
+    """Hands-free voice drill (P3): continuous mic, auto-VAD, barge-in, Ctrl+C to end."""
+    import sounddevice as sd
+    from google import genai
+
+    s, session_id, instructions, tools, transcript = _open(settings, transcript_dir)
+    stats: dict = {"session_id": session_id, "turns": 0, "tool_calls": 0, "summary": False}
+    loop = asyncio.get_running_loop()
+    mic_q: asyncio.Queue[bytes] = asyncio.Queue(maxsize=200)
+    out_q: asyncio.Queue[bytes] = asyncio.Queue(maxsize=200)
+
+    def on_mic(indata, frames, time_info, status):
+        if not mic_q.full():
+            loop.call_soon_threadsafe(mic_q.put_nowait, bytes(indata))
+
+    async def pump_mic(session):
+        while True:
+            chunk = await mic_q.get()
+            await session.send_realtime_input(
+                audio=types.Blob(data=chunk, mime_type="audio/pcm;rate=16000")
+            )
+
+    def player():
+        with sd.RawOutputStream(samplerate=24000, channels=1, dtype="int16", blocksize=2048) as st:
+            while True:
+                chunk = asyncio.run_coroutine_threadsafe(out_q.get(), loop).result()
+                st.write(chunk)
+
+    # startup mic meter: 1.5 s of raw level so a dead input shows immediately
+    def mic_peak() -> int:
+        import time
+
+        chunks: list[bytes] = []
+        with sd.RawInputStream(
+            samplerate=16000,
+            channels=1,
+            dtype="int16",
+            blocksize=1600,
+            callback=lambda d, f, t, s_: chunks.append(bytes(d)),
+        ):
+            time.sleep(1.5)
+        peak = 0
+        for c in chunks:
+            for i in range(0, len(c) - 1, 2):
+                peak = max(peak, abs(int.from_bytes(c[i : i + 2], "little", signed=True)))
+        return peak
+
+    peak = await asyncio.to_thread(mic_peak)
+    print(f"[mic level {peak}] (0-500 ~ quiet room is fine, 0 across speech = dead input)")
 
     client = genai.Client(api_key=s.gemini_api_key)
-    cfg = types.LiveConnectConfig(
-        response_modalities=[types.Modality.AUDIO],
-        system_instruction=instructions,
-        input_audio_transcription=types.AudioTranscriptionConfig(),
-        output_audio_transcription=types.AudioTranscriptionConfig(),
-        tools=[{"function_declarations": function_declarations()}],
-    )
+    async with client.aio.live.connect(**_connect_kwargs(s, instructions)) as session:
+        print(f"[practice #{session_id}] listening. Speak; Ctrl+C to finish.")
+
+        async def recv():
+            you: list[str] = []
+            coach: list[str] = []
+            async for msg in session.receive():
+                with transcript.open("a", encoding="utf-8") as f:
+                    f.write(msg.model_dump_json() + "\n")
+                if msg.tool_call:
+                    responses = _handle_tool_call(tools, msg.tool_call, stats)
+                    await session.send_tool_response(function_responses=responses)
+                    continue
+                sc = msg.server_content
+                if not sc:
+                    continue
+                if sc.interrupted:
+                    while not out_q.empty():
+                        out_q.get_nowait()
+                    print("[interrupted]")
+                if sc.input_transcription and sc.input_transcription.text:
+                    you.append(sc.input_transcription.text)
+                if sc.output_transcription and sc.output_transcription.text:
+                    coach.append(sc.output_transcription.text)
+                if sc.model_turn:
+                    for part in sc.model_turn.parts or []:
+                        if part.inline_data and part.inline_data.data:
+                            out_q.put_nowait(part.inline_data.data)
+                if sc.turn_complete:
+                    stats["turns"] += 1
+                    u, c = "".join(you).strip(), "".join(coach).strip()
+                    if u:
+                        print(f"you> {u}")
+                    if c:
+                        print(f"coach> {c}")
+                    you.clear()
+                    coach.clear()
+
+        with sd.RawInputStream(
+            samplerate=16000, channels=1, dtype="int16", blocksize=2048, callback=on_mic
+        ):
+            pump = asyncio.create_task(pump_mic(session))
+            play = asyncio.create_task(asyncio.to_thread(player))
+            listen = asyncio.create_task(recv())
+            try:
+                await asyncio.Event().wait()
+            except (KeyboardInterrupt, asyncio.CancelledError):
+                pass
+            finally:
+                for t in (pump, play, listen):
+                    t.cancel()
+        if not stats["summary"]:
+            try:
+                async with asyncio.timeout(60):
+                    await session.send_realtime_input(
+                        text="The session is ending — call save_session_summary now with a short summary."
+                    )
+                    async for msg in session.receive():
+                        if msg.tool_call:
+                            responses = _handle_tool_call(tools, msg.tool_call, stats)
+                            await session.send_tool_response(function_responses=responses)
+                        if msg.server_content and msg.server_content.turn_complete:
+                            break
+            except TimeoutError:
+                pass
+    if not stats["summary"]:
+        with closing(store.connect(s.db_path)) as conn:
+            store.close_practice_session(conn, session_id, "")
+        print("[practice] no summary saved, transcript only:", transcript)
+    return stats
+
+
+async def run_practice(
+    settings, transcript_dir: Path | None = None, lines: list[str] | None = None
+) -> dict:
+    """Drill session against Gemini Live. `lines` lets scripts drive it instead of stdin."""
+    s, session_id, instructions, tools, transcript = _open(settings, transcript_dir)
     stats: dict = {"session_id": session_id, "turns": 0, "tool_calls": 0, "summary": False}
+    client = genai.Client(api_key=s.gemini_api_key)
     scripted = iter(lines) if lines is not None else None
 
     async def next_line() -> str:
@@ -149,17 +303,7 @@ async def run_practice(
             with transcript.open("a", encoding="utf-8") as f:
                 f.write(msg.model_dump_json() + "\n")
             if msg.tool_call:
-                calls = msg.tool_call.function_calls or []
-                responses = []
-                for fc in calls:
-                    result = dispatch(tools, fc.name or "", dict(fc.args or {}))
-                    stats["tool_calls"] += 1
-                    responses.append(
-                        types.FunctionResponse(name=fc.name, id=fc.id, response={"result": result})
-                    )
-                    if fc.name == "save_session_summary":
-                        stats["summary"] = True
-                print(f"[tool: {', '.join(fc.name or '?' for fc in calls)}]")
+                responses = _handle_tool_call(tools, msg.tool_call, stats)
                 await session.send_tool_response(function_responses=responses)
                 continue  # the tool response triggers more model output; keep consuming
             sc = msg.server_content
@@ -169,7 +313,7 @@ async def run_practice(
                 return "".join(pieces).strip()
         return "".join(pieces).strip()
 
-    async with client.aio.live.connect(model=LIVE_MODEL, config=cfg) as session:
+    async with client.aio.live.connect(**_connect_kwargs(s, instructions)) as session:
         print(
             f"[practice #{session_id}] connected. Type Czech for help or Polish to drill; /end to quit."
         )

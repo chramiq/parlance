@@ -215,14 +215,21 @@ def lexicon_llm_hints(
 
 
 @app.command("practice")
-def practice():
-    """Drill session with the Gemini Live coach (typed I/O; voice lands in P3)."""
+def practice(
+    text: bool = typer.Option(False, "--text", help="Typed I/O instead of voice (scripted tests)."),
+):
+    """Voice drill session with the Gemini Live coach (space-free, auto-VAD)."""
     import asyncio as _asyncio
 
-    from .practice import run_practice
+    from .practice import run_practice, run_practice_voice
 
     s = get_settings()
-    stats = _asyncio.run(run_practice(s))
+    runner = run_practice if text else run_practice_voice
+    try:
+        stats = _asyncio.run(runner(s))
+    except KeyboardInterrupt:
+        typer.echo("ended")
+        return
     typer.echo(stats)
 
 
