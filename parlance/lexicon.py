@@ -216,7 +216,9 @@ async def build_llm_hints(
                 for word, glosses in zip(words, slots)
                 for gloss in glosses
             ]
-            stats["rows"] += store.merge_pairs(conn, settings.target_lang, settings.known_lang, rows)
+            stats["rows"] += store.merge_pairs(
+                conn, settings.target_lang, settings.known_lang, rows
+            )
 
     await asyncio.gather(*(worker() for _ in range(workers)))
     return {"lemmas": len(pending), **stats}

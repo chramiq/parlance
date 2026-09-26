@@ -12,6 +12,7 @@ dependencies = [
     "edge-tts>=7",
     "httpx>=0.28.1",
     "google-genai>=2.22.0",
+    "sounddevice>=0.5.6",
 ]
 
 [project.scripts]
