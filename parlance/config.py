@@ -24,6 +24,7 @@ class Settings(BaseSettings):
     litellm_base_url: str | None = None
     litellm_api_key: str | None = None
     litellm_model: str | None = None
+    gemini_api_key: str | None = None
 
     known_lang: str = "cs"
     target_lang: str = "pl"

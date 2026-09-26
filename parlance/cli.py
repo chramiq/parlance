@@ -184,6 +184,25 @@ def lexicon_build(
     typer.echo(stats)
 
 
+@app.command("llm-hints")
+def lexicon_llm_hints(
+    batch: int = 20,
+    limit: int | None = typer.Option(None, help="Process at most this many lemmas (testing)."),
+):
+    """Backfill gemini-live translation hints for every lemma lacking one (resumable)."""
+    import asyncio
+
+    from .lexicon import build_llm_hints as _llm
+
+    s = get_settings()
+    if not s.gemini_api_key:
+        typer.echo("GEMINI_API_KEY missing in .env")
+        raise typer.Abort()
+    with closing(store.connect(s.db_path)) as conn:
+        stats = asyncio.run(_llm(conn, s, batch=batch, limit=limit))
+    typer.echo(stats)
+
+
 @app.command("audit")
 def audit(sample: int = 15, prompt: str = ""):
     """Self-check pass: the agent reviews a random sample of stored cards and fixes defects."""

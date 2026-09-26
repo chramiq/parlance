@@ -270,6 +270,38 @@ def replace_pairs(
     return len(rows)
 
 
+def merge_pairs(
+    conn: sqlite3.Connection, target_lang: str, known_lang: str, rows: list[tuple[str, str, str]]
+) -> int:
+    """Upsert hint rows, unioning the sources tag. rows: (target, known, source_tag). Returns rows touched."""
+    touched = 0
+    for target, known, tag in rows:
+        cur = conn.execute(
+            "SELECT sources FROM lexicon_pairs WHERE target_lang=? AND target=? AND known_lang=? AND known=?",
+            (target_lang, target, known_lang, known),
+        ).fetchone()
+        if cur:
+            srcs = set(json.loads(cur["sources"])) | {tag}
+            conn.execute(
+                "UPDATE lexicon_pairs SET sources=? WHERE target_lang=? AND target=? AND known_lang=? AND known=?",
+                (
+                    json.dumps(sorted(srcs), ensure_ascii=False),
+                    target_lang,
+                    target,
+                    known_lang,
+                    known,
+                ),
+            )
+        else:
+            conn.execute(
+                "INSERT INTO lexicon_pairs (target_lang, target, known_lang, known, sources) VALUES (?,?,?,?,?)",
+                (target_lang, target, known_lang, known, json.dumps([tag], ensure_ascii=False)),
+            )
+        touched += 1
+    conn.commit()
+    return touched
+
+
 def pair_suggestions(
     conn: sqlite3.Connection, lemma: str, known_lang: str, target_lang: str, limit: int = 8
 ) -> list[str]:
@@ -279,7 +311,7 @@ def pair_suggestions(
         for r in conn.execute(
             "SELECT known FROM lexicon_pairs"
             " WHERE target_lang = ? AND known_lang = ? AND target = ?"
-            " ORDER BY LENGTH(known) LIMIT ?",
+            " ORDER BY (sources LIKE '%wikt%') DESC, LENGTH(known) LIMIT ?",
             (target_lang, known_lang, lemma, limit),
         )
     ]

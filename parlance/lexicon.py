@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import gzip
 import json
+import re
 import sqlite3
 import urllib.request
 from collections.abc import Iterator
@@ -48,6 +49,123 @@ def iter_translations(path: Path, lang_code: str) -> Iterator[tuple[str, str]]:
             for t in e.get("translations") or []:
                 if t.get("lang_code") == lang_code and t.get("word"):
                     yield word, t["word"].strip()
+
+
+def parse_hint_json(text: str) -> list[list[str]] | None:
+    """Extract the [[...], ...] hint array from a spoken-transcription payload.
+
+    Survives code fences, narration around the array, and newlines. None when
+    no parseable array exists (caller skips the batch instead of guessing).
+    """
+    text = text.strip().removeprefix("```json").removeprefix("```").removesuffix("```")
+    m = re.search(r"\[.*\]", text, re.DOTALL)
+    if not m:
+        return None
+    try:
+        arr = json.loads(m.group(0))
+    except (json.JSONDecodeError, ValueError):
+        return None
+    if not isinstance(arr, list):
+        return None
+    out = []
+    for slot in arr:
+        if isinstance(slot, str):
+            slot = [slot]
+        if not isinstance(slot, list):
+            return None
+        out.append([str(g).strip() for g in slot if str(g).strip()])
+    return out
+
+
+LIVE_HINT_MODEL = "gemini-3.8-live"
+LIVE_HINT_SOURCE = "gemini-live"
+
+
+async def build_llm_hints(
+    conn: sqlite3.Connection,
+    settings,
+    batch: int = 20,
+    limit: int | None = None,
+    session_every: int = 200,
+    log=print,
+) -> dict:
+    """Backfill gemini-live hint rows for every lemma lacking one (resumable).
+
+    One Live session, chunked to dodge server-side session limits; each turn
+    carries `batch` numbered lemmas and expects a spoken JSON array of Czech
+    candidates in the same order (probe: 20/20 slots in ~4 s).
+    """
+    from google import genai
+    from google.genai import types
+
+    done = {
+        r["target"]
+        for r in conn.execute(
+            "SELECT DISTINCT target FROM lexicon_pairs WHERE sources LIKE ?",
+            (f"%{LIVE_HINT_SOURCE}%",),
+        )
+    }
+    pending = [
+        r["lemma"]
+        for r in conn.execute("SELECT lemma FROM lemmas ORDER BY freq_rank")
+        if r["lemma"] not in done
+    ]
+    if limit:
+        pending = pending[:limit]
+    if not pending:
+        log("llm-hints: nothing pending")
+        return {"lemmas": 0, "turns": 0}
+
+    client = genai.Client(api_key=settings.gemini_api_key)
+    written = turns = 0
+    for chunk_start in range(0, len(pending), session_every):
+        chunk = pending[chunk_start : chunk_start + session_every]
+        cfg = types.LiveConnectConfig(
+            response_modalities=[types.Modality.AUDIO],
+            system_instruction=(
+                f"Jsi prekladac {settings.target_lang}->{settings.known_lang}. "
+                f"Na ocislovany seznam slov odpovez POUZE JSON polem ve stejnem poradi: "
+                f'[["preklad1","preklad2"], ...]. 1-3 hovorove preklady, zadny jiny text.'
+            ),
+            output_audio_transcription=types.AudioTranscriptionConfig(),
+            temperature=0.2,
+        )
+        async with client.aio.live.connect(model=LIVE_HINT_MODEL, config=cfg) as session:
+            for i in range(0, len(chunk), batch):
+                words = chunk[i : i + batch]
+                out = []
+                try:
+                    import asyncio
+
+                    async with asyncio.timeout(60):
+                        await session.send_realtime_input(
+                            text=", ".join(f"{j + 1}. {w}" for j, w in enumerate(words))
+                        )
+                        async for msg in session.receive():
+                            sc = msg.server_content
+                            if sc and sc.output_transcription and sc.output_transcription.text:
+                                out.append(sc.output_transcription.text)
+                            if sc and sc.turn_complete:
+                                break
+                except TimeoutError:
+                    log(f"llm-hints: turn timeout @{i}; rotating session, lemmas stay pending")
+                    break
+                turns += 1
+                slots = parse_hint_json("".join(out))
+                if not slots:
+                    log(f"llm-hints: batch @{i} unparsed, skipped")
+                    continue
+                rows = [
+                    (word, gloss, LIVE_HINT_SOURCE)
+                    for word, glosses in zip(words, slots)
+                    for gloss in glosses
+                ]
+                store.merge_pairs(conn, settings.target_lang, settings.known_lang, rows)
+                written += len(rows)
+        log(
+            f"llm-hints: {min(chunk_start + len(chunk), len(pending))}/{len(pending)} lemmas, {written} rows"
+        )
+    return {"lemmas": len(pending), "turns": turns, "rows": written}
 
 
 def build_pairs(
