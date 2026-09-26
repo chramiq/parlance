@@ -1,33 +1,28 @@
 # AGENTS.md
 
-parlance: an offline-first generator of personal Anki material for speaking a
+parlance: an generator of personal Anki cards for speaking a
 language, built for a learner who knows one language (KNOWN_LANG) and wants to
-actually produce another (TARGET_LANG) — not just recognize it. Language-pair
-agnostic; the pair is runtime config from `.env`. Cards are built
-from the learner's own chat exports (optional) and a subtitle-frequency
-wordlist; pydantic-ai agents write, grade and maintain the content; a local
-SQLite DB is the single source of truth; genanki emits decks with stable
+actually produce another (TARGET_LANG). Language-pair agnostic; 
+the pair is runtime config from `.env`. Cards are built
+from the subtitle-frequency wordlist; pydantic-ai agents write, grade 
+and maintain the content; genanki emits decks with stable
 GUIDs so reimports update in place.
-
-The flagship card is a chat simulation: an incoming message arrives (text +
-audio), the learner reads, understands and replies with an entire sentence.
-Success = production, not memorization.
 
 ## Repo layout
 
 | Path | What lives there |
 |---|---|
-| `parlance/cli.py` | typer CLI: `worklist` (build/list/stats), `init` (pair profile), `generate` (restart-loop). More verbs land with their phase |
-| `parlance/config.py` | pydantic-settings from `.env`: LLM endpoint, language pair, paths |
-| `parlance/store.py` | SQLite source of truth: lemmas, glosses, variants, sources, card state, priority score |
+| `parlance/cli.py` | typer CLI: `worklist`, `init`, `generate`, `deck build`, `audit`, `lexicon`, `llm-hints`, `practice`, `practice-log` |
+| `parlance/config.py` | pydantic-settings from `.env`: LLM endpoint, Gemini key, language pair, paths |
+| `parlance/store.py` | SQLite source of truth: lemmas, content, changes journal, lexicon hints/words, practice sessions |
 | `parlance/worklist.py` | frequency list -> simplemma lemma queue, dedup vs store |
 | `parlance/cognates.py` | known-language vocab map + orthographic similarity tags; the model owns all cognate judgments |
-| `parlance/profile.py` | learner-profile builder from imported chats (topics, register, recurring situations) |
-| `parlance/chats/` | export parsers: `meta.py` (Instagram + Messenger DYI json), `signal.py` (signal-export output) |
-| `parlance/agent.py` | the single pydantic-ai agent + its 5 store tools (poll_vocab, lookup, submit_translations, set_statuses, save_pair_profile); tool-arg schemas are the validation boundary |
+| `parlance/agent.py` | the single pydantic-ai agent + store tools (poll_vocab, lookup, submit_translations, set_statuses, save_pair_profile; review_sample in audit mode); tool-arg schemas are the validation boundary |
+| `parlance/lexicon.py` | hint grounding: kaikki edition pairs, gemini-live spoken-JSON hints, validation wordlist |
+| `parlance/practice.py` | voice drill session over Gemini Live: digest, tools, session lifecycle, transcript |
 | `parlance/deck/` | Anki emission: `model.py` (note types + templates), `build.py` (genanki, GUID/due/media) |
 | `parlance/tts.py` | TTS providers + content-hash audio cache (edge-tts default) |
-| `parlance/prompts/` | agent instruction files (`vocab.md`); profile JSON is rendered in at build time |
+| `parlance/prompts/` | agent instruction files (`vocab.md`, `audit.md`, `practice.md`); profile JSON is rendered in at build time |
 | `docs/` | architecture decision records (`INDEX.md` + one file per ADR) — read these for why |
 | `tests/` | pytest; agents run offline against TestModel/FunctionModel |
 | `var/` | all runtime state (gitignored): `parlance.db`, audio cache, chat exports |
@@ -50,7 +45,7 @@ Success = production, not memorization.
 
 ```bash
 uv sync
-cp .env.example .env  # fill in LiteLLM base_url + api key
+cp .env.example .env
 ```
 
 ## Develop
@@ -104,6 +99,9 @@ uv run parlance <command>
 - Agent tool docstrings are LLM input; examples go inline in the body, never
   in sections after `Args:`.
 - Design rationale lives in `docs/` ADRs, not in code comments.
+- Hard rule: never reference documents, probes, dates, or "verified-on"
+  markers in docs or comments. Facts are stated on their own; git history
+  owns the when. No personal details about the user anywhere in the repo.
 
 ### Research
 

@@ -92,10 +92,31 @@ renders the profile at run time; profiles are editable JSON.
 - Schema-discipline: the `TranslationDraft` contract lives in the tool args;
   renaming a field is a card-format migration for old payloads.
 
+## Amendments
+
+- **Audit mode.** The same five-tool philosophy gained a proofreading mode:
+  `parlance audit` loads `prompts/audit.md` instead of `prompts/vocab.md` and
+  adds a sixth tool, `review_sample(n)` (random stored cards with payloads).
+  New ability = new tool + new instruction file, no new agent — as designed.
+- **Two-tier gloss validation.** `submit_translations` now runs two more
+  layers beyond shape/cloze checks: an anti-fabrication tier (every gloss
+  token must exist in the stored validation wordlist of the known language;
+  inert while the wordlist is absent) and a hint-discipline tier (preferred
+  gloss outside the lemma's hint suggestions is kept but flagged, with
+  justification demanded in the report). Both layers ride the same
+  rejected-with-reason channel as cloze validation; they exist because
+  prompt-level pressure (hints shown, then mandatory hints) measured
+  insufficient against fabrication-prone words, while hard-rejecting all
+  off-hint picks measured overly aggressive against legitimate ones.
+- **Hint grounding.** `poll_vocab` attaches `suggested_known` candidates
+  from the lexicon tables (edition-dictionary pairs merged with
+  model-generated hints) so the agent judges grounded candidates instead of
+  inventing from priors; see `parlance/lexicon.py`.
+
 ## Code
 
 - `parlance/agent.py` — models, validators, tools, build_agent
-- `parlance/prompts/vocab.md` — generation instructions (profile-rendered)
-- `parlance/cli.py` — `init`, `generate` (restart-loop driver)
-- `parlance/store.py` — schema v2 (content, meta), upsert/lookup/meta API
+- `parlance/prompts/` — `vocab.md` (generation), `audit.md` (proofreading)
+- `parlance/cli.py` — `init`, `generate` (restart-loop driver), `audit`
+- `parlance/store.py` — schema (content, meta), upsert/lookup/meta API
 - `tests/test_agent.py`, `tests/test_store.py` — FunctionModel flows, migration

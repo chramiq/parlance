@@ -26,7 +26,7 @@ our mobile-first constraint.
 
 **Identity is content-derived.** Every note gets `guid = stable hash of
 (type, lemma-or-chatline-id)` — genanki `Note(guid=...)` accepts it. REIMPORT
-RULE (verified in the Anki manual): importing an .apkg whose GUIDs match
+RULE (Anki import semantics): importing an .apkg whose GUIDs match
 existing notes updates those notes' fields in place; scheduling/review
 progress is untouched because genanki files carry no scheduling data; field
 count of the note type must stay unchanged or updates silently skip. Note-type
@@ -37,7 +37,7 @@ model ID on purpose, never edits fields in place.
 `Note(due=priority_position)` sets the new-card position at build time; we
 combine it with gather order "Deck", sort "card type, then gathered", and
 bury-siblings on (one note spawns 2–3 cards; without burying they camp
-together in a session → v1's INSTALL.md settings stay, now justified). Decks
+together in a session). Decks
 are emitted as `<TargetLang>::NNN-<theme>` subdecks from a single Package so theme
 grouping, per-subdeck daily new-card limits, and gathering "top subdecks
 first" are all stock Anki behavior.
@@ -50,17 +50,16 @@ rare times it matters; an AnkiConnect cleanup script is a documented
 optional extra on desktop (TODO.md), never on the happy path.
 
 **Media is immutable.** Audio filenames are content hashes (`sha1(text+voice)`
-), referenced by basename only. Probe correction: genanki does NOT dedupe
+), referenced by basename only. genanki does NOT dedupe
 by content — the same file passed twice ships twice in the .apkg; uniqueness
 comes from our content-hash naming, and AnkiWeb sync delivers the basenames
 to AnkiDroid. Retext a sentence and old audio orphans harmlessly; the
-store's audio table records what exists so `parlance tts` never regenerates
+store's audio table records what exists so the deck build never regenerates
 unchanged clips.
 
 **FSRS, one preset.** Desired retention 90%; learning steps under a day (10m);
-bury new siblings; gather order Deck; sort card-type-then-gathered. Ships as
-this repo's `INSTALL.md` as a recommended starting preset, retuned after the
-first month of real retention data.
+bury new siblings; gather order Deck; sort card-type-then-gathered. A
+starting preset, to be retuned against real retention data.
 
 Scope note: the collection starts from zero — there is deliberately no
 migration path for the old deck. The lifecycle rules above exist for the

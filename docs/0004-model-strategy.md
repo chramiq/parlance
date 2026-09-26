@@ -35,8 +35,7 @@ One model name, one key, one base URL — everything provider-ish lives in
 `.env`, so swapping model or gateway never touches code.
 
 **Output-mode ladder.** pydantic-ai supports three structured-output modes;
-the choice per deployment is data (what the gateway's model actually honors),
-verified by a probe before the first real run:
+the choice per deployment is data (what the gateway's model actually honors):
 
 1. `NativeOutput` — JSON-schema response_format, strongest when the model
    offers it natively.
@@ -64,8 +63,7 @@ behavior is pinned (per the probe-first rule in AGENTS.md).
 Model fitness for this workload (translate/draft/grade text into JSON):
 any modern chat model available on the gateway is comfortably sufficient;
 the binding constraint is JSON adherence, which the ladder above plus output
-retries absorbs. Prefer a model with native JSON-schema output if the gateway
-offers one — the probe says which.
+retries absorbs.
 
 ## What this enables
 
@@ -82,13 +80,12 @@ offers one — the probe says which.
   defaults; if a model needs it, that is a config smell to investigate, not a
   silent fallback.
 - Provider quirks (single-system-message merges, non-strict tool JSON) are
-  handled by `OpenAIModelProfile` knobs only when proven by a probe — we do
+  handled by `OpenAIModelProfile` knobs only when actually observed — we do
   not pre-configure for gateway bugs we have not met.
 
-## Probe findings (recorded 2026-09, against the real gateway)
+## Gateway facts
 
-Everything above was verified against the live `.env` gateway. Facts that
-change the design:
+Facts known about the live `.env` gateway that change the design:
 
 - **Envelope quirk (gateway routing metadata).** The gateway annotates
   responses with `metadata: {"weight_version": "default", "weight_versions":
@@ -100,22 +97,24 @@ change the design:
   strip the `metadata` key from non-streaming `application/json` bodies
   (SSE streams pass through untouched), passed via
   `OpenAIProvider(openai_client=AsyncOpenAI(http_client=AsyncClient(event_hooks={"response": [hook]})))`.
-  With the hook, **every probed model passes all three output modes**
+  With the hook, every model passes all three output modes
   (tool, native JSON-schema, prompted). ToolOutput stays the default.
 - **Thinking leakage is model-family-specific.** deepseek-v4-flash writes
   its chain-of-thought into `content` on plain-text prompts (fine for tool
   calls — unusable for plain-text steps). glm, kimi, qwen3.8, mistral return
   reasoning separately as `reasoning_content` — zero leakage into content.
   Rule stands: thinking off for JSON, and the structured modes carry it.
-- **Quality tease.** On a trivial translate-to-Czech task, glm-5.3, kimi-k3
-  and mistral were correct; qwen3.8-flash-next produced a wrong POS gloss.
-- **Default: `glm-5.3` via the metadata hook; fallback: `kimi-k3`.**
-- **STT for free:** the gateway serves `whisper-large-v3` — the speech
-  roadmap (practice --voice) costs no extra service.
+- **Model fitness in the translation loop, ranked:** qwen3.8-27b is the
+  default engine — fast, reliable tool loop, natural sentences; its rare
+  failure is inventing a non-word gloss, which the hint grounding and
+  anti-fabrication validator (ADR-0005+) exist to hold. glm-5.3 is
+  quality-comparable but slow on a congested cluster; gpt-oss-120b fails
+  the tool loop; gemma4 fails batch reliability despite strong single-word
+  glosses.
 
 ## Code
 
 - `parlance/config.py` — settings (endpoint, key, one model name) + the
-  metadata-stripping httpx hook (lifted verbatim from the probe)
+  metadata-stripping httpx hook
 - `parlance/agent.py` — the single agent on the shared model factory
 - `tests/` — TestModel/FunctionModel coverage of every agent mode
