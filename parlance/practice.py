@@ -5,9 +5,10 @@ Memory persistence is sqlite; the model never owns state: each session opens
 with a digest (recent summaries, recurring error patterns, targets) and
 closes by journaling a summary via save_session_summary.
 
-Typed transport now (audio mounts in P3): the user types, model still answers
+Typed transport now (voice mounts in P3): the user types, the model answers
 with AUDIO (Live is audio-only) which we do not play — output transcription
-is the text channel.
+is the text channel. Turns are disciplined: one line in, one full model turn
+out, prompt again.
 """
 
 from __future__ import annotations
@@ -34,7 +35,7 @@ poprosit prodavačku o…". Nech studenta mluvit polsky; když neví, řekne če
 opakovat, dokud to nesedí. Chyby opravuj česky, stručně, a vždy ho nech větu
 zopakovat správně. Když udělá stejnou chybu dvakrát, zaznamenej ji přes
 log_error. Používej get_practice_targets na začátku, když potřebuješ slovíčka
-na procvičení. Na konci (uslyšíš "konec" nebo uživatel píše /end) shrň do
+na procvičení. Odpovídej stručně (1-3 věty). Na konci (uslyšíš "konec" nebo uživatel píše /end) shrň do
 save_session_summary: co se trénovalo, hlavní chyby, co příště."""
 
 
@@ -53,15 +54,14 @@ class PracticeTools:
                    ORDER BY c.id DESC LIMIT ?""",
                 (n,),
             ).fetchall()
-            out = [
-                {
-                    "lemma": r["lemma"],
-                    "gloss": r["preferred_gloss"],
-                    "example": json.loads(r["payload"])["examples"][0]["target"],
-                }
-                for r in rows
-            ]
-        return out
+        return [
+            {
+                "lemma": r["lemma"],
+                "gloss": r["preferred_gloss"],
+                "example": json.loads(r["payload"])["examples"][0]["target"],
+            }
+            for r in rows
+        ]
 
     def log_error(self, pattern: str, wrong: str, right: str, lemma: str | None = None) -> str:
         with closing(store.connect(self.conn_path)) as conn:
@@ -86,7 +86,7 @@ def function_declarations() -> list[dict]:
         },
         {
             "name": "log_error",
-            "description": "Zaznamenej chybu studenta, když se opakuje: typ chyby, špatný tvar, správný tvar.",
+            "description": "Zaznamenej opakovanou chybu studenta: typ chyby, špatný tvar, správný tvar.",
             "parameters": {
                 "type": "OBJECT",
                 "properties": {
@@ -111,13 +111,14 @@ def function_declarations() -> list[dict]:
 
 
 def dispatch(tools: PracticeTools, name: str, args: dict):
-    fn = getattr(tools, name)
-    return fn(**args)
+    return getattr(tools, name)(**args)
 
 
-async def run_practice(settings, transcript_dir: Path | None = None) -> dict:
-    """Typed drill session against Gemini Live. Returns closing stats."""
-    from .config import get_settings  # local: keep module import light for tests
+async def run_practice(
+    settings, transcript_dir: Path | None = None, lines: list[str] | None = None
+) -> dict:
+    """Drill session against Gemini Live. `lines` lets scripts drive it instead of stdin."""
+    from .config import get_settings  # local import keeps module light for tests
 
     s = settings or get_settings()
     assert s.gemini_api_key, "GEMINI_API_KEY missing"
@@ -136,69 +137,64 @@ async def run_practice(settings, transcript_dir: Path | None = None) -> dict:
         output_audio_transcription=types.AudioTranscriptionConfig(),
         tools=[{"function_declarations": function_declarations()}],
     )
-    stats = {"session_id": session_id, "turns": 0, "tool_calls": 0, "summary": False}
+    stats: dict = {"session_id": session_id, "turns": 0, "tool_calls": 0, "summary": False}
+    scripted = iter(lines) if lines is not None else None
+
+    async def next_line() -> str:
+        if scripted is not None:
+            return next(scripted, "/end")
+        return await asyncio.to_thread(input, "ty> ")
+
+    async def consume_turn(session) -> str:
+        """Consume one model turn: dispatch tools on the way, return aggregated reply text."""
+        pieces: list[str] = []
+        async for msg in session.receive():
+            with transcript.open("a", encoding="utf-8") as f:
+                f.write(msg.model_dump_json() + "\n")
+            if msg.tool_call:
+                calls = msg.tool_call.function_calls or []
+                responses = []
+                for fc in calls:
+                    result = dispatch(tools, fc.name or "", dict(fc.args or {}))
+                    stats["tool_calls"] += 1
+                    responses.append(
+                        types.FunctionResponse(name=fc.name, id=fc.id, response={"result": result})
+                    )
+                    if fc.name == "save_session_summary":
+                        stats["summary"] = True
+                print(f"[nástroj: {', '.join(fc.name or '?' for fc in calls)}]")
+                await session.send_tool_response(function_responses=responses)
+                continue  # the tool response triggers more model output; keep consuming
+            sc = msg.server_content
+            if sc and sc.output_transcription and sc.output_transcription.text:
+                pieces.append(sc.output_transcription.text)
+            if sc and sc.turn_complete:
+                return "".join(pieces).strip()
+        return "".join(pieces).strip()
+
     async with client.aio.live.connect(model=LIVE_MODEL, config=cfg) as session:
         print(f"[practice #{session_id}] připojeno. Piš česky nebo polsky; '/end' pro konec.")
-
-        async def read_input():
+        try:
             while True:
-                line = await asyncio.to_thread(input, "ty> ")
-                await session.send_realtime_input(text=line)
+                line = await next_line()
                 if line.strip() == "/end":
-                    return
-
-        async def recv():
-            async for msg in session.receive():
-                with transcript.open("a", encoding="utf-8") as f:
-                    f.write(msg.model_dump_json() + "\n")
-                if msg.tool_call:
-                    responses = []
-                    for fc in msg.tool_call.function_calls or []:
-                        result = dispatch(tools, fc.name or "", dict(fc.args or {}))
-                        stats["tool_calls"] += 1
-                        responses.append(
-                            types.FunctionResponse(
-                                name=fc.name, id=fc.id, response={"result": result}
-                            )
-                        )
-                        if fc.name == "save_session_summary":
-                            stats["summary"] = True
-                    await session.send_tool_response(function_responses=responses)
-                    continue
-                sc = msg.server_content
-                if sc and sc.output_transcription and sc.output_transcription.text:
-                    print(f"trenér> {sc.output_transcription.text}")
-                if sc and sc.turn_complete:
-                    stats["turns"] += 1
-
-        input_task = asyncio.create_task(read_input())
-        recv_task = asyncio.create_task(recv())
-        await input_task
-        # ask for the closing summary once if the model didn't save it yet
+                    break
+                await session.send_realtime_input(text=line)
+                reply = await asyncio.wait_for(consume_turn(session), timeout=120)
+                stats["turns"] += 1
+                if reply:
+                    print(f"trenér> {reply}")
+        except KeyboardInterrupt:
+            print("\n[ukončeno uživatelem]")
         if not stats["summary"]:
             try:
                 async with asyncio.timeout(60):
                     await session.send_realtime_input(
                         text="Session končí — zavolej teď save_session_summary s krátkým shrnutím."
                     )
-                    async for msg in session.receive():
-                        if msg.tool_call:
-                            responses = []
-                            for fc in msg.tool_call.function_calls or []:
-                                result = dispatch(tools, fc.name or "", dict(fc.args or {}))
-                                responses.append(
-                                    types.FunctionResponse(
-                                        name=fc.name, id=fc.id, response={"result": result}
-                                    )
-                                )
-                                if fc.name == "save_session_summary":
-                                    stats["summary"] = True
-                            await session.send_tool_response(function_responses=responses)
-                        if msg.server_content and msg.server_content.turn_complete:
-                            break
+                    await consume_turn(session)
             except TimeoutError:
                 pass
-        recv_task.cancel()
     if not stats["summary"]:
         with closing(store.connect(s.db_path)) as conn:
             store.close_practice_session(conn, session_id, "")
