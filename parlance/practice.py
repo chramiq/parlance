@@ -24,7 +24,6 @@ from google.genai import types
 
 from . import store
 
-LIVE_MODEL = "gemini-3.8-live"
 PROMPT_PATH = Path(__file__).parent / "prompts" / "practice.md"
 
 
@@ -139,7 +138,7 @@ def _connect_kwargs(s, instructions: str) -> dict:
     from google.genai import types
 
     return {
-        "model": LIVE_MODEL,
+        "model": s.gemini_live_model,
         "config": types.LiveConnectConfig(
             response_modalities=[types.Modality.AUDIO],
             system_instruction=instructions,
@@ -177,7 +176,7 @@ def _open(settings_or_none, transcript_dir: Path | None):
     s = settings_or_none or get_settings()
     assert s.gemini_api_key, "GEMINI_API_KEY missing"
     with closing(store.connect(s.db_path)) as conn:
-        session_id = store.open_practice_session(conn, LIVE_MODEL)
+        session_id = store.open_practice_session(conn, s.gemini_live_model)
         digest = store.practice_digest(conn)
     instructions = (
         PROMPT_PATH.read_text(encoding="utf-8")
@@ -323,7 +322,7 @@ async def run_practice_voice(settings, transcript_dir: Path | None = None) -> di
 async def run_practice(
     settings, transcript_dir: Path | None = None, lines: list[str] | None = None
 ) -> dict:
-    """Drill session against Gemini Live. `lines` lets scripts drive it instead of stdin."""
+    """Drill session against Gemini Live. lines lets scripts drive it instead of stdin."""
     s, session_id, instructions, tools, transcript = _open(settings, transcript_dir)
     stats: dict = {"session_id": session_id, "turns": 0, "tool_calls": 0, "summary": False}
     client = genai.Client(api_key=s.gemini_api_key)

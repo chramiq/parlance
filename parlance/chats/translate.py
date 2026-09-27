@@ -52,7 +52,7 @@ class WordTargets(BaseModel):
     words: list[WordTarget]
 
 
-def _target_forms(path) -> tuple[dict[str, list[str]], dict[str, int]]:
+def _target_forms(path, lang: str) -> tuple[dict[str, list[str]], dict[str, int]]:
     """Group the target frequency list: lemma -> corpus forms, form -> rank."""
     forms_by_lemma: dict[str, list[str]] = {}
     ranks: dict[str, int] = {}
@@ -63,7 +63,7 @@ def _target_forms(path) -> tuple[dict[str, list[str]], dict[str, int]]:
                 continue
             form = parts[0].lower()
             ranks.setdefault(form, rank)
-            forms_by_lemma.setdefault(simplemma.lemmatize(form, lang="pl"), []).append(form)
+            forms_by_lemma.setdefault(simplemma.lemmatize(form, lang=lang), []).append(form)
     return forms_by_lemma, ranks
 
 
@@ -91,9 +91,10 @@ def _materialize(
 ) -> tuple[int, bool]:
     """Insert the chosen word as a lemma (or reuse the existing row).
 
-    The chosen word is normalized to its simplemma lemma so the pl_50k form
-    grouping applies; corpus forms come from that grouping, making cloze
-    validation work exactly as for frequency-worklist lemmas.
+    The chosen word is normalized to its simplemma lemma so the target
+    frequency-list form grouping applies; corpus forms come from that
+    grouping, making cloze validation work exactly as for frequency-worklist
+    lemmas.
 
     Returns:
         (lemma_id, newly created).
@@ -145,8 +146,8 @@ def translate_pending(
     stats: Counter[str] = Counter(pending=len(pending))
     if not pending:
         return dict(stats)
-    worklist.ensure_source(s.wordlist_path)
-    forms_by_lemma, ranks = _target_forms(s.wordlist_path)
+    worklist.ensure_source(s.wordlist_path, s.target_lang)
+    forms_by_lemma, ranks = _target_forms(s.wordlist_path, s.target_lang)
     model = model or build_model(s)
     fallback = [50_000]
 

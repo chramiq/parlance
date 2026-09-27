@@ -1,4 +1,4 @@
-"""typer app: worklist, init, generate. More verbs land with their phase (see TODO.md)."""
+"""typer app: single entry point; every command delegates to a subsystem module."""
 
 import json
 from contextlib import closing
@@ -29,6 +29,7 @@ def worklist_build(scan_forms: int | None = None):
         db_path=s.db_path,
         source_path=s.wordlist_path,
         scan_limit=scan_forms or s.worklist_scan_forms,
+        lang=s.target_lang,
     )
     typer.echo(f"queue={total} inserted={inserted} skipped_known={skipped}")
 

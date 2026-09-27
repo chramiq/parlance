@@ -2,8 +2,8 @@
 
 kaikki.org wiktextract edition dumps (CC BY-SA 3.0), both directions
 (target-edition direct + known-edition inverted), landing in the
-`lexicon_pairs` table as ADVISORY hints surfaced by poll_vocab
-(`suggested_known`); nothing is enforced and the agent judges.
+lexicon_pairs table as ADVISORY hints surfaced by poll_vocab
+(suggested_known); nothing is enforced and the agent judges.
 
 The loader is language-agnostic -- new pairs are two language codes away.
 """
@@ -74,9 +74,7 @@ def build_pairs(
     }
 
 
-CS_50K_URL = (
-    "https://raw.githubusercontent.com/hermitdave/FrequencyWords/master/content/2016/cs/cs_50k.txt"
-)
+FORMS_URL_TEMPLATE = "https://raw.githubusercontent.com/hermitdave/FrequencyWords/master/content/2018/{lang}/{lang}_50k.txt"
 
 
 def build_words(conn: sqlite3.Connection, lang: str, cache_dir: Path) -> dict:
@@ -94,7 +92,7 @@ def build_words(conn: sqlite3.Connection, lang: str, cache_dir: Path) -> dict:
     forms_path = cache_dir / f"{lang}_50k.txt"
     if not forms_path.exists():
         cache_dir.mkdir(parents=True, exist_ok=True)
-        urllib.request.urlretrieve(CS_50K_URL, forms_path)
+        urllib.request.urlretrieve(FORMS_URL_TEMPLATE.format(lang=lang), forms_path)
     with open(forms_path, encoding="utf-8") as f:
         for line in f:
             parts = line.split()

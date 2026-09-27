@@ -16,9 +16,7 @@ import simplemma
 
 from . import store
 
-SOURCE_URL = (
-    "https://raw.githubusercontent.com/hermitdave/FrequencyWords/master/content/2018/pl/pl_50k.txt"
-)
+SOURCE_URL_TEMPLATE = "https://raw.githubusercontent.com/hermitdave/FrequencyWords/master/content/2018/{lang}/{lang}_50k.txt"
 MAX_FORMS_PER_LEMMA = 20
 
 
@@ -35,14 +33,16 @@ class LemmaQueueItem:
     forms: list[str] = field(default_factory=list)
 
 
-def ensure_source(path: Path) -> None:
-    """Download the frequency list to path when missing, no-op otherwise."""
+def ensure_source(path: Path, lang: str) -> None:
+    """Download the lang frequency list to path when missing, no-op otherwise."""
     if path.exists():
         return
     path.parent.mkdir(parents=True, exist_ok=True)
     tmp = path.with_suffix(".tmp")
     try:
-        with httpx.stream("GET", SOURCE_URL, timeout=120, follow_redirects=True) as r:
+        with httpx.stream(
+            "GET", SOURCE_URL_TEMPLATE.format(lang=lang), timeout=120, follow_redirects=True
+        ) as r:
             r.raise_for_status()
             with open(tmp, "wb") as f:
                 f.writelines(r.iter_bytes())
@@ -65,7 +65,7 @@ def iter_forms(path: Path, scan_limit: int) -> list[tuple[str, int]]:
     return forms
 
 
-def build_queue(forms: list[tuple[str, int]]) -> list[LemmaQueueItem]:
+def build_queue(forms: list[tuple[str, int]], lang: str) -> list[LemmaQueueItem]:
     """Collapse surface forms into lemmas ranked by summed count.
 
     Returns:
@@ -74,7 +74,7 @@ def build_queue(forms: list[tuple[str, int]]) -> list[LemmaQueueItem]:
     freq: dict[str, int] = {}
     seen_forms: dict[str, list[str]] = {}
     for form, count in forms:
-        lemma = simplemma.lemmatize(form, lang="pl")
+        lemma = simplemma.lemmatize(form, lang=lang)
         freq[lemma] = freq.get(lemma, 0) + count
         bucket = seen_forms.setdefault(lemma, [])
         if len(bucket) < MAX_FORMS_PER_LEMMA:
@@ -83,17 +83,17 @@ def build_queue(forms: list[tuple[str, int]]) -> list[LemmaQueueItem]:
     return [LemmaQueueItem(lemma=lem, freq=c, forms=seen_forms[lem]) for lem, c in ranked]
 
 
-def run(db_path: Path, source_path: Path, scan_limit: int) -> tuple[int, int, int]:
+def run(db_path: Path, source_path: Path, scan_limit: int, lang: str) -> tuple[int, int, int]:
     """Build the worklist: fetch source if needed, lemmatize, seed the store.
 
     Returns:
         (total_lemmas_in_queue, inserted, skipped_as_known).
     """
-    ensure_source(source_path)
+    ensure_source(source_path, lang)
     forms = iter_forms(source_path, scan_limit)
     if not forms:
         raise ValueError(f"source {source_path} yielded 0 forms (empty or corrupt file?)")
-    queue = build_queue(forms)
+    queue = build_queue(forms, lang)
     rows = [
         {"lemma": it.lemma, "freq_rank": rank, "freq": it.freq, "forms": it.forms}
         for rank, it in enumerate(queue, start=1)

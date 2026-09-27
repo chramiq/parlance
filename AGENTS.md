@@ -104,6 +104,8 @@ uv run parlance <command>
   references ADRs the other way either — no `see docs/NNNN` in comments or
   docstrings.
 - Docstrings and comments describe only how the code works NOW.
+- No Markdown in docstrings or comments: no backticks, no emphasis, no
+  links. Identifiers are written bare.
 - Hard rule: never reference documents, probes, scripts, dates, or
   "verified-on" markers in docs or comments. Facts are stated on their
   own; git history owns the when. No personal details about the user
@@ -113,5 +115,5 @@ uv run parlance <command>
 
 - Always confirm current APIs before writing code against libraries.
   Pydantic ecosystem: fetch `https://pydantic.dev/docs/ai/llms.txt`, then
-  individual pages as `.md`; Context7 as fallback.
+  individual pages as `.md`; Use Context7 extensively, same for websearch.
 - `gh` is authenticated for GitHub research.
