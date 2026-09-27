@@ -23,6 +23,7 @@ from google import genai
 from google.genai import types
 
 from . import store
+from .agent import LANG_NAMES
 
 PROMPT_PATH = Path(__file__).parent / "prompts" / "practice.md"
 
@@ -351,8 +352,10 @@ async def run_practice(
         return "".join(pieces).strip()
 
     async with client.aio.live.connect(**_connect_kwargs(s, instructions)) as session:
+        known = LANG_NAMES.get(s.known_lang, s.known_lang)
+        target = LANG_NAMES.get(s.target_lang, s.target_lang)
         print(
-            f"[practice #{session_id}] connected. Type Czech for help or Polish to drill; /end to quit."
+            f"[practice #{session_id}] connected. Type {known} for help or {target} to drill; /end to quit."
         )
         try:
             while True:

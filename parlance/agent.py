@@ -344,12 +344,14 @@ def build_agent(
                     if conn.execute(
                         "SELECT 1 FROM lexicon_words WHERE lang = ? LIMIT 1", (s.known_lang,)
                     ).fetchone():
+                        known_name = LANG_NAMES.get(s.known_lang, s.known_lang)
                         for v in draft.variants:
                             bad = unknown_gloss_token(conn, s.known_lang, v.gloss)
                             if bad:
                                 raise ValueError(
-                                    f"gloss token {bad!r} (in {v.gloss!r}) is not a Czech word;"
-                                    f" check spelling or pick a real one (see suggested_known)"
+                                    f"gloss token {bad!r} (in {v.gloss!r}) is not a"
+                                    f" {known_name} word; check spelling or pick a real"
+                                    f" one (see suggested_known)"
                                 )
                     duplicates = [
                         r["lemma"]

@@ -12,7 +12,7 @@ GUIDs so reimports update in place.
 
 | Path | What lives there |
 |---|---|
-| `parlance/cli.py` | typer CLI: `worklist`, `init`, `generate`, `deck build`, `audit`, `lexicon`, `chats`, `practice`, `practice-log` |
+| `parlance/cli.py` | typer CLI: `worklist`, `init`, `generate`, `deck build`, `audit`, `lexicon`, `chats`, `profile`, `practice`, `practice-log` |
 | `parlance/config.py` | pydantic-settings from `.env`: Gemini key/model, language pair, paths |
 | `parlance/store.py` | SQLite source of truth: lemmas, content, changes journal, lexicon hints/words, practice sessions |
 | `parlance/worklist.py` | frequency list -> simplemma lemma queue, dedup vs store |
@@ -23,6 +23,7 @@ GUIDs so reimports update in place.
 | `parlance/deck/` | Anki emission: `model.py` (note types + templates), `build.py` (genanki, GUID/due/media) |
 | `parlance/tts.py` | TTS providers + content-hash audio cache (edge-tts default) |
 | `parlance/chats/` | Meta DIY export ingestion (`meta.py`) + personal pre-pass (`translate.py`): the owner's words -> gated wordlist -> target lemmas |
+| `parlance/profile.py` | pair-profile show/edit (the stored document that seeds generation style) |
 | `parlance/prompts/` | agent instruction files (`vocab.md`, `audit.md`, `translate.md`, `practice.md`): language-pair-agnostic workflow text, `{KNOWN}`/`{TARGET}` placeholders; profile JSON is rendered in at build time |
 | `docs/` | architecture decision records (`INDEX.md` + one file per ADR) — read these for why |
 | `tests/` | pytest; agents run offline against TestModel/FunctionModel |
@@ -82,6 +83,10 @@ uv run parlance <command>
 - New features and structural changes get an ADR in `docs/`: one file per
   decision, appended to `docs/INDEX.md`. Amend the ADR when the decision changes.
 - Python 3.13 target.
+- No hardcoded languages. Wordlists, URLs, prompts, error text and
+  tokenizers take the language from config or a parameter; nothing is
+  scoped to one language. The only allowed language table is the
+  display-name map (LANG_NAMES) with a code fallback.
 - Run all three checks after every change: `ruff check`, `ruff format --check`,
   `ty check`.
 - Tool failures surface as explicit, structured error text the model can act

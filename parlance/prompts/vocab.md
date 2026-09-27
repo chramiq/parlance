@@ -39,6 +39,14 @@ similar_known. Judge each tag yourself — the tag is a hint, not a verdict:
   word but means something different, fill false_friend_note. Write it in
   {KNOWN}, keep it to one line.
 
+## Corpus junk
+
+The frequency corpus is subtitle-derived: it contains English words (you,
+way, yeah), name fragments (henr, taylor) and mis-segmented junk. When a
+polled lemma is not a real {TARGET} word, call set_statuses with status
+skipped and a reason (e.g. "subtitle corpus junk: English word") — never
+write a card for it.
+
 ## Card rules
 
 - preferred: index of the single most useful everyday gloss — the one the

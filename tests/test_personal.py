@@ -129,6 +129,66 @@ def test_translate_prompt_carries_dictionary_candidates(tmp_path):
     assert "candidates: kochać" in seen["prompt"]
 
 
+def test_translate_pending_words_cap(tmp_path):
+    s, _ = seeded_settings(tmp_path)
+    conn = store.connect(s.db_path)
+    for w, c in (("málo", 30), ("kámo", 20), ("hospoda", 10)):
+        add_personal_word(conn, "cs", w, c)
+
+    def fn(messages, info: AgentInfo) -> ModelResponse:
+        sent = str(messages[0].parts[0].content).splitlines()
+        return ModelResponse(
+            parts=[
+                TextPart(
+                    json.dumps(
+                        {"words": [{"known": line.split()[0], "target": "x"} for line in sent]}
+                    )
+                )
+            ]
+        )
+
+    stats = translate.translate_pending(conn, s, model=FunctionModel(fn), words=2)
+    assert stats["pending"] == 2
+    # the least-used word never reached the model and stays pending
+    assert [r["lemma"] for r in store.personal_pending(conn)] == ["hospoda"]
+
+
+def test_translate_pending_batch_error_tolerated(tmp_path):
+    s, _ = seeded_settings(tmp_path)
+    conn = store.connect(s.db_path)
+    add_personal_word(conn, "cs", "málo", 30)
+    add_personal_word(conn, "cs", "kámo", 20)
+    add_personal_word(conn, "cs", "hospoda", 10)
+
+    calls = {"n": 0}
+
+    def fn(messages, info: AgentInfo) -> ModelResponse:
+        calls["n"] += 1
+        if calls["n"] == 1:
+            raise RuntimeError("simulated gateway death")
+        sent = str(messages[0].parts[0].content).splitlines()
+        return ModelResponse(
+            parts=[
+                TextPart(
+                    json.dumps(
+                        {"words": [{"known": line.split()[0], "target": "kochać"} for line in sent]}
+                    )
+                )
+            ]
+        )
+
+    stats = translate.translate_pending(conn, s, model=FunctionModel(fn), batch=1)
+    assert stats["errors"] == 1
+    assert stats["mapped"] == 2  # the failed batch's word stays pending
+    assert [r["lemma"] for r in store.personal_pending(conn)] == ["málo"]
+    detail = json.loads(
+        conn.execute("SELECT detail FROM changes WHERE action='personal:prepass'").fetchone()[
+            "detail"
+        ]
+    )
+    assert "RuntimeError" in detail["last_error"]
+
+
 def test_poll_personal_order_and_status_filter(tmp_path):
     s, _ = seeded_settings(tmp_path)
     conn = store.connect(s.db_path)
@@ -208,8 +268,8 @@ def test_generate_cli_personal_deck_wiring(tmp_path, monkeypatch):
 
     calls = {}
 
-    def fake_prepass(conn, s):
-        calls["prepass"] = True
+    def fake_prepass(conn, s, words=None):
+        calls["prepass"] = words
         return {"pending": 0}
 
     monkeypatch.setattr(translate, "translate_pending", fake_prepass)
@@ -227,13 +287,17 @@ def test_generate_cli_personal_deck_wiring(tmp_path, monkeypatch):
             return SimpleNamespace(output="done", usage=None)
 
     monkeypatch.setattr(cli, "build_agent", lambda s, db_path, **kw: FakeAgent())
-    result = CliRunner().invoke(cli.app, ["generate", "--deck", "personal", "--count", "1"])
+    result = CliRunner().invoke(
+        cli.app, ["generate", "--deck", "personal", "--count", "1", "--words", "100"]
+    )
     assert result.exit_code == 0
-    assert calls == {"prepass": True, "personal": True}
+    assert calls == {"prepass": 100, "personal": True}
     assert "pre-pass" in result.stdout
 
     bad = CliRunner().invoke(cli.app, ["generate", "--deck", "bogus"])
     assert bad.exit_code != 0
+    wrong_deck = CliRunner().invoke(cli.app, ["generate", "--words", "5"])
+    assert wrong_deck.exit_code != 0
 
 
 def _personal_deck_db(tmp_path):
@@ -298,3 +362,39 @@ async def test_build_emits_personal_subdeck(tmp_path, monkeypatch):
         col_decks = json.loads(con.execute("SELECT decks FROM col").fetchone()[0])
         deck_names = {d["name"] for d in col_decks.values()}
         assert "Polish::personal" in deck_names
+
+
+def test_chats_import_multi_lang(tmp_path, monkeypatch):
+    """One export, two gate languages: cs keeps Czech words, en keeps English ones."""
+    import json as _json
+
+    s, _ = seeded_settings(tmp_path)
+    monkeypatch.setattr(cli, "get_settings", lambda: s)
+    root = tmp_path / "ig"
+    root.mkdir()
+    thread = {
+        "participants": [{"name": "me"}, {"name": "friend"}],
+        "thread_path": "inbox/t1",
+        "messages": [
+            {"sender_name": "me", "timestamp_ms": 1, "content": "you call me tonight"},
+            {"sender_name": "me", "timestamp_ms": 2, "content": "mas tam"},
+        ],
+    }
+    (root / "message_t1.json").write_text(_json.dumps(thread), encoding="utf-8")
+    # gate wordlists on disk for both languages: the CLI must never download
+    (tmp_path / "wordlist" / "cs_50k.txt").write_text(
+        "máš 100\nmám 90\ntam 50\njá 40\n", encoding="utf-8"
+    )
+    en = tmp_path / "wordlist" / "en_50k.txt"
+    en.write_text("you 100\ncall 50\ntonight 30\n", encoding="utf-8")
+
+    result = CliRunner().invoke(
+        cli.app, ["chats", "import", str(root), "--lang", "cs", "--lang", "en"]
+    )
+    assert result.exit_code == 0
+    assert "[cs]" in result.stdout and "[en]" in result.stdout
+    conn = store.connect(s.db_path)
+    cs_words = {r["lemma"] for r in store.list_personal_words(conn, "cs", limit=-1)}
+    en_words = {r["lemma"] for r in store.list_personal_words(conn, "en", limit=-1)}
+    assert "mít" in cs_words and "you" not in cs_words
+    assert {"you", "call"} <= en_words and "mít" not in en_words

@@ -155,3 +155,20 @@ def test_mojibake_fix_roundtrip():
     assert meta._fix(mojibake("chuť")) == "chuť"
     assert meta._fix("plain ascii") == "plain ascii"
     assert meta._fix("already ěščř utf8") == "already ěščř utf8"
+
+
+def test_gate_is_language_agnostic(tmp_path):
+    """Letters outside the Czech alphabet still tokenize; the gate wordlist, not
+    the tokenizer, decides the language (Slovak stream here)."""
+    import simplemma
+
+    wl = tmp_path / "sk_50k.txt"
+    wl.write_text("ďaleký 100\n", encoding="utf-8")
+    root = tmp_path / "ig"
+    write_thread(root, [OWNER, OTHER], [msg(OWNER, "ďaleký")], "t1")
+    write_thread(root, [OWNER, THIRD], [msg(OWNER, "ok")], "t2")
+    conn = store.connect(tmp_path / "t.db")
+    meta.import_chats(conn, [root], "sk", wl)
+    lemma = simplemma.lemmatize("ďaleký", lang="sk")
+    rows = {r["lemma"]: r["count"] for r in store.list_personal_words(conn, "sk", limit=-1)}
+    assert rows.get(lemma) == 1

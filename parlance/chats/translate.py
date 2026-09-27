@@ -115,24 +115,26 @@ def _materialize(
 
 
 def translate_pending(
-    conn, s: Settings, batch: int = 40, model: Model | None = None
+    conn, s: Settings, batch: int = 40, model: Model | None = None, words: int | None = None
 ) -> dict[str, int]:
-    """Run the pre-pass over every pending personal word (any language).
+    """Run the pre-pass over pending personal words (any language).
 
     Idempotent and resumable: only words without a verdict are sent; words
     the model omits or echoes wrongly stay pending and are retried next run.
+    A failed LLM batch is logged and skipped the same way.
 
     Args:
         conn: Store connection.
         s: Settings (target wordlist is downloaded when missing).
         batch: Words per LLM request.
         model: Override model (tests).
+        words: Only the N most-used words (None = all pending).
 
     Returns:
         Counts: pending, mapped, skipped, new_lemmas, existing_lemmas,
-        unmatched, omitted.
+        unmatched, omitted, errors.
     """
-    pending = store.personal_pending(conn)
+    pending = store.personal_pending(conn, words)
     stats: Counter[str] = Counter(pending=len(pending))
     if not pending:
         return dict(stats)
@@ -140,6 +142,7 @@ def translate_pending(
     forms_by_lemma, ranks = _target_forms(s.wordlist_path, s.target_lang)
     model = model or build_model(s)
     fallback = [50_000]
+    last_error = ""
 
     template = PROMPT_PATH.read_text(encoding="utf-8")
     for lang in sorted({r["lang"] for r in pending}):
@@ -148,12 +151,17 @@ def translate_pending(
         instructions = template.replace("{KNOWN}", known).replace("{TARGET}", target)
         agent = Agent(model, output_type=WordTargets, retries=5, instructions=instructions)
         for chunk in batched([r for r in pending if r["lang"] == lang], batch):
-            words = [r["lemma"] for r in chunk]
-            candidates = _dict_candidates(conn, lang, s.target_lang, words)
+            words_in_chunk = [r["lemma"] for r in chunk]
+            candidates = _dict_candidates(conn, lang, s.target_lang, words_in_chunk)
             prompt = "\n".join(
-                f"{w}  [candidates: {', '.join(candidates.get(w, []))}]" for w in words
+                f"{w}  [candidates: {', '.join(candidates.get(w, []))}]" for w in words_in_chunk
             )
-            result = agent.run_sync(prompt)
+            try:
+                result = agent.run_sync(prompt)
+            except Exception as e:  # noqa: BLE001 -- one failed batch must not kill the run; its words stay pending
+                stats["errors"] += 1
+                last_error = f"{type(e).__name__}: {e}"[:200]
+                continue
             by_word = {r["lemma"]: r for r in chunk}
             verdicts = []
             for t in result.output.words:
@@ -184,7 +192,8 @@ def translate_pending(
         conn,
         "personal:prepass",
         None,
-        {k: v for k, v in stats.items() if k != "pending"},
+        {k: v for k, v in stats.items() if k != "pending"}
+        | ({"last_error": last_error} if last_error else {}),
     )
     conn.commit()
     return dict(stats)

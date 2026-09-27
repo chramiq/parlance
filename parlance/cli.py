@@ -19,6 +19,8 @@ deck_app = typer.Typer(no_args_is_help=True, help="Assemble the Anki deck from s
 app.add_typer(deck_app, name="deck")
 chats_app = typer.Typer(no_args_is_help=True, help="Import personal chats into a private wordlist.")
 app.add_typer(chats_app, name="chats")
+profile_app = typer.Typer(no_args_is_help=True, help="Show and edit the language-pair profile.")
+app.add_typer(profile_app, name="profile")
 
 
 @worklist_app.command("build")
@@ -126,6 +128,9 @@ def generate(
     random_sample: bool = False,
     prompt: str = "",
     deck: str = typer.Option("frequency", "--deck", help="frequency | personal."),
+    words: int = typer.Option(
+        0, "--words", help="Personal deck only: pre-pass just the N most-used chat words (0 = all)."
+    ),
 ):
     """Translate new vocabulary cards via the agent restart-loop.
 
@@ -133,10 +138,14 @@ def generate(
     prompt appends a user persona/task note to the agent's instructions for
     this run.
     deck personal: pending chat words are pre-passed to target lemmas first,
-    then cards are written into the personal deck.
+    then cards are written into the personal deck. words caps the pre-pass
+    to the most-used chat words.
     """
     if deck not in ("frequency", "personal"):
         typer.echo(f"unknown deck {deck!r}: expected frequency or personal")
+        raise typer.Abort()
+    if words and deck != "personal":
+        typer.echo("--words applies to the personal deck only")
         raise typer.Abort()
     s = get_settings()
     personal = deck == "personal"
@@ -153,7 +162,7 @@ def generate(
         if personal:
             from .chats.translate import translate_pending
 
-            typer.echo(f"pre-pass: {translate_pending(conn, s)}")
+            typer.echo(f"pre-pass: {translate_pending(conn, s, words=words or None)}")
         agent = build_agent(s, s.db_path, extra_prompt=prompt)
         while submitted < count:
             # journal watermark: monotonic, immune to same-second timestamp ties
@@ -212,7 +221,7 @@ def lexicon_build(
         "", help="Folder with pre-downloaded {lang}-extract.jsonl.gz files."
     ),
 ):
-    """Build hint pairs from kaikki dumps + the Czech validation wordlist (downloads if missing)."""
+    """Build hint pairs from kaikki dumps and the known-language validation wordlist (downloads if missing)."""
     from pathlib import Path
 
     from .lexicon import build_pairs, build_words
@@ -275,24 +284,33 @@ def practice_log(
 @chats_app.command("import")
 def chats_import(
     paths: Annotated[list[Path], typer.Argument(help="Extracted Meta export directories.")],
-    lang: str = typer.Option("", "--lang", help="Gate language (default: KNOWN_LANG from .env)."),
+    lang: Annotated[
+        list[str] | None,
+        typer.Option("--lang", help="Gate languages, repeatable (default: KNOWN_LANG from .env)."),
+    ] = None,
 ):
-    """Accumulate the owner's own words from chat exports (idempotent, multi-export)."""
+    """Accumulate the owner's own words from chat exports (idempotent, multi-export).
+
+    Each --lang runs the same export through that language's public-word
+    gate, so one set of chats yields several source-language wordlists; the
+    pre-pass maps all of them to the target language later.
+    """
     from .chats import meta
 
     s = get_settings()
-    lang = lang or s.known_lang
+    langs = lang or [s.known_lang]
     typer.echo(
         "WARNING: chat exports contain your full personal history. Do not read\n"
         "through these files -- let parlance do it: it keeps only single common\n"
         "public words and never stores sentences."
     )
     with closing(store.connect(s.db_path)) as conn:
-        stats = meta.import_chats(
-            conn, [Path(p) for p in paths], lang, s.data_dir / "wordlist" / f"{lang}_50k.txt"
-        )
-        typer.echo(" ".join(f"{k}={v}" for k, v in stats.items()))
-        typer.echo(store.personal_words_stats(conn, lang))
+        for lg in langs:
+            stats = meta.import_chats(
+                conn, [Path(p) for p in paths], lg, s.data_dir / "wordlist" / f"{lg}_50k.txt"
+            )
+            typer.echo(f"[{lg}] " + " ".join(f"{k}={v}" for k, v in stats.items()))
+            typer.echo(f"[{lg}] {store.personal_words_stats(conn, lg)}")
 
 
 @chats_app.command("list")
@@ -315,6 +333,30 @@ def chats_list(
         )
     if not rows:
         typer.echo(f"(no personal words with status={status})")
+
+
+@profile_app.command("show")
+def profile_show():
+    """Print the stored pair profile (what seeds sentence and gloss style)."""
+    from . import profile as profile_mod
+
+    s = get_settings()
+    with closing(store.connect(s.db_path)) as conn:
+        typer.echo(profile_mod.show(conn))
+
+
+@profile_app.command("edit")
+def profile_edit():
+    """Edit the profile in $EDITOR; JSON and fields are validated before saving."""
+    from . import profile as profile_mod
+
+    s = get_settings()
+    with closing(store.connect(s.db_path)) as conn:
+        try:
+            typer.echo(profile_mod.edit(conn))
+        except ValueError as e:
+            typer.echo(f"profile rejected: {e}")
+            raise typer.Abort()
 
 
 @app.command("audit")

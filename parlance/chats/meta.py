@@ -29,7 +29,9 @@ SYSTEM_STRINGS = {
     "You started an audio call",
 }
 
-TOKEN_RE = re.compile(r"[a-záčďéěíňóřšťúůýž-]+")
+# any unicode letters; the gate wordlist is the language filter, so the
+# tokenizer itself must not assume an alphabet
+TOKEN_RE = re.compile(r"[^\W\d_]+")
 URL_RE = re.compile(r"(?:https?://|www\.)\S+", re.IGNORECASE)
 
 
