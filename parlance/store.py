@@ -453,11 +453,15 @@ def session_errors(conn: sqlite3.Connection, session_id: int):
 
 
 def sample_generated(conn: sqlite3.Connection, n: int) -> list[dict]:
-    """Up to n random generated cards with full payloads, for audit passes."""
+    """Up to n random generated cards with full payloads, for audit passes.
+
+    Both decks are sampled (kind column included so the auditor knows which
+    deck each card lives in).
+    """
     rows = conn.execute(
-        """SELECT l.lemma, l.freq_rank, l.cognate_class, c.preferred_gloss, c.payload, c.model
+        """SELECT l.lemma, l.freq_rank, l.cognate_class, c.kind, c.preferred_gloss, c.payload, c.model
            FROM content c JOIN lemmas l ON l.id = c.lemma_id
-           WHERE c.kind = 'lemma' AND l.status = 'generated'
+           WHERE l.status = 'generated'
            ORDER BY RANDOM() LIMIT ?""",
         (n,),
     )
@@ -466,6 +470,7 @@ def sample_generated(conn: sqlite3.Connection, n: int) -> list[dict]:
             "lemma": r["lemma"],
             "freq_rank": r["freq_rank"],
             "cognate_class": r["cognate_class"],
+            "kind": r["kind"],
             "preferred_gloss": r["preferred_gloss"],
             "model": r["model"],
             "payload": json.loads(r["payload"]),

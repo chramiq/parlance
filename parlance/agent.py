@@ -130,6 +130,9 @@ class Deps:
     model_name: str
     randomize: bool = False
     personal: bool = False
+    # audit edits must preserve a sampled card's kind instead of flipping it
+    # to the generation default
+    audit: bool = False
 
 
 def validate_cloze(ex: Example, corpus_forms: list[str]) -> None:
@@ -363,6 +366,15 @@ def build_agent(
                     # write order matters for crash recovery: metadata first,
                     # content second, status flip last -- every window heals on re-poll.
                     kind = "personal" if ctx.deps.personal else "lemma"
+                    if ctx.deps.audit:
+                        kinds = [
+                            r["kind"]
+                            for r in conn.execute(
+                                "SELECT kind FROM content WHERE lemma_id=?", (row["id"],)
+                            )
+                        ]
+                        if kind not in kinds and len(kinds) == 1:
+                            kind = kinds[0]
                     conn.execute(
                         "UPDATE lemmas SET pos=?, cognate_class=?, updated_at=? WHERE id=?",
                         (

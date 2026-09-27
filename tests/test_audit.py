@@ -33,6 +33,24 @@ def test_sample_generated_returns_random_cards(tmp_path):
     assert sample[0]["payload"]["lemma"] == sample[0]["lemma"]
 
 
+def test_sample_generated_covers_both_decks(tmp_path):
+    """Personal-deck cards are sampled too; kind tells the auditor the deck."""
+    conn = store.connect(tmp_path / "t.db")
+    for lemma, kind in (("kochać", "lemma"), ("być", "personal")):
+        store.add_lemmas(conn, [{"lemma": lemma, "freq_rank": 1, "freq": 1, "forms": []}])
+        store.set_status(conn, lemma, "generated")
+        store.upsert_content(
+            conn,
+            conn.execute("SELECT id FROM lemmas WHERE lemma=?", (lemma,)).fetchone()["id"],
+            kind,
+            "g",
+            "{}",
+            "m",
+        )
+    sample = store.sample_generated(conn, 10)
+    assert {r["lemma"]: r["kind"] for r in sample} == {"kochać": "lemma", "być": "personal"}
+
+
 AUDIT_EDITED_DRAFT = {
     "lemma": "kochać",
     "pos": "sloveso",
@@ -71,3 +89,19 @@ def test_audit_flow_samples_then_fixes(tmp_path):
     assert "1 fixed" in result.output
     row = store.get_content(conn, "kochać")
     assert row is not None and row["preferred_gloss"] == "milovat"
+
+
+def test_audit_edit_preserves_personal_kind(tmp_path):
+    """An audit fix on a personal-deck card must not flip it to the lemma deck."""
+    db = tmp_path / "t.db"
+    conn = store.connect(db)
+    store.add_lemmas(conn, [{"lemma": "kochać", "freq_rank": 1, "freq": 150, "forms": ["kocham"]}])
+    store.set_status(conn, "kochać", "generated")
+    lemma_id = conn.execute("SELECT id FROM lemmas WHERE lemma='kochać'").fetchone()["id"]
+    store.upsert_content(conn, lemma_id, "personal", "starygloss", "{}", "m")
+    agent = build_agent(Settings(), db, model=FunctionModel(scripted_audit), audit=True)
+    result = agent.run_sync("audit", deps=Deps(db_path=db, model_name="testmodel", audit=True))
+    assert "1 fixed" in result.output
+    row = store.get_content(conn, "kochać", kind="personal")
+    assert row is not None and row["preferred_gloss"] == "milovat"
+    assert store.get_content(conn, "kochać", kind="lemma") is None

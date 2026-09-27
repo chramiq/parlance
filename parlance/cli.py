@@ -57,6 +57,26 @@ def _content_count(conn, kind: str = "lemma") -> int:
     return conn.execute("SELECT COUNT(*) n FROM content WHERE kind=?", (kind,)).fetchone()["n"]
 
 
+def _run_card_changes(conn, kind: str, since_id: int) -> tuple[int, int]:
+    """Cards created vs edited after a journal row id (content:upsert entries).
+
+    Returns:
+        (new_cards, edited_cards) for the given deck kind.
+    """
+    new = edited = 0
+    for r in conn.execute(
+        "SELECT detail FROM changes WHERE action='content:upsert' AND id > ?", (since_id,)
+    ):
+        detail = json.loads(r["detail"])
+        if detail.get("kind") != kind:
+            continue
+        if detail.get("created"):
+            new += 1
+        else:
+            edited += 1
+    return new, edited
+
+
 def _report_tool_rejects(result) -> None:
     """Echo any per-item rejections reported by the write tools this run."""
     from pydantic_ai.messages import ToolReturnPart
@@ -136,7 +156,10 @@ def generate(
             typer.echo(f"pre-pass: {translate_pending(conn, s)}")
         agent = build_agent(s, s.db_path, extra_prompt=prompt)
         while submitted < count:
-            before = _content_count(conn, kind)
+            # journal watermark: monotonic, immune to same-second timestamp ties
+            run_start_id = conn.execute("SELECT COALESCE(MAX(id), 0) i FROM changes").fetchone()[
+                "i"
+            ]
             remaining = min(count - submitted, batch)
             try:
                 result = agent.run_sync(
@@ -159,13 +182,14 @@ def generate(
             except Exception as e:  # noqa: BLE001 -- the driver must keep looping regardless of a single run's failure mode
                 report = f"run FAILED: {type(e).__name__}: {str(e)[:300]}"
                 usage = "n/a"
-            wrote = _content_count(conn, kind) - before
-            submitted += wrote
-            typer.echo(f"run: wrote={wrote} total={submitted}/{count} usage={usage}")
+            # new cards drive the loop; edits are reported for visibility only
+            new, edited = _run_card_changes(conn, kind, run_start_id)
+            submitted += new
+            typer.echo(f"run: new={new} edited={edited} total={submitted}/{count} usage={usage}")
             if report:
                 typer.echo(f"  agent: {report[:200]}")
-            if wrote == 0:
-                typer.echo("run submitted nothing; stopping instead of burning budget.")
+            if new == 0:
+                typer.echo("run submitted nothing new; stopping instead of burning budget.")
                 break
         typer.echo(store.stats(conn))
 
@@ -304,7 +328,7 @@ def audit(sample: int = 15, prompt: str = ""):
         agent = build_agent(s, s.db_path, extra_prompt=prompt, audit=True)
         result = agent.run_sync(
             f"Audit {sample} cards using review_sample, fix clear defects, then report.",
-            deps=Deps(db_path=s.db_path, model_name=s.gemini_model),
+            deps=Deps(db_path=s.db_path, model_name=s.gemini_model, audit=True),
             usage_limits=UsageLimits(request_limit=60),
         )
         typer.echo(result.output)
