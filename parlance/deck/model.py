@@ -154,6 +154,11 @@ _CSS = (
 #typeans:focus { border-color: """
     + _ACCENT
     + """ !important; outline: none !important; }
+/* the back-face comparison is a code element sharing the input's id; it must
+   be a block or the padded border fragments per line and the arrow row falls
+   outside the box */
+code#typeans { display: block !important; }
+#typearrow { color: #71717a !important; }
 .typeGood { background: rgba(21,128,61,.14) !important; color: #4ade80 !important; }
 .typeBad { background: #2a1518 !important; color: #f87171 !important; }
 .typeMissed { background: #131417 !important; color: #d4d4d8 !important; }
