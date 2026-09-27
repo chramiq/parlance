@@ -2,7 +2,7 @@
 
 One variant per utterance: a learner-slow rate (default -25%, user-overridable
 via TTS_RATE) -- the user is learning the language, so the slow version IS
-the audio (docs/0002). Natural variants are one render away if ever wanted.
+the audio. Natural variants are one render away if ever wanted.
 """
 
 import asyncio

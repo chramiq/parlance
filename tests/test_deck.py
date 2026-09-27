@@ -119,6 +119,7 @@ async def test_build_apkg_structure(tmp_path, monkeypatch):
     out_path, counts = await _build(db, tmp_path, monkeypatch)
     assert counts == {
         "notes": 2,
+        "personal": 0,
         "cards": 3,  # system is a free cognate -> Recognition card suppressed
         "media": 4,  # 2 texts x 2 notes, one learner-slow rate each
         "out": str(out_path),

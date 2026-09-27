@@ -1,8 +1,7 @@
 """Frequency list -> simplemma lemmas -> cognate classes -> dedup vs store -> ranked queue.
 
-The source list is hermitdave/FrequencyWords (OpenSubtitles 2016/2018 derived,
-content licensed CC BY-SA 4.0): spoken-register forms with raw counts. Surface
-forms collapse to lemmas via simplemma, counts are summed per lemma, and the
+The source list is hermitdave/FrequencyWords: spoken-register forms with raw counts.
+Surface forms collapse to lemmas via simplemma, counts are summed per lemma, and the
 queue is ranked by summed frequency. Cognate classification happens later, at
 generation time, when a gloss pair actually exists to compare.
 """

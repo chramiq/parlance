@@ -103,6 +103,13 @@ CREATE TABLE IF NOT EXISTS chat_seen (
     msg_hash TEXT NOT NULL,
     PRIMARY KEY (lang, msg_hash)
 ) WITHOUT ROWID;
+CREATE TABLE IF NOT EXISTS personal_targets (
+    known_lang TEXT NOT NULL,
+    known TEXT NOT NULL,
+    lemma_id INTEGER REFERENCES lemmas(id),
+    skip_reason TEXT NOT NULL DEFAULT '',
+    PRIMARY KEY (known_lang, known)
+);
 """
 
 
@@ -600,3 +607,80 @@ def personal_words_stats(conn: sqlite3.Connection, lang: str) -> dict[str, int]:
             "SELECT status, COUNT(*) n FROM personal_words WHERE lang=? GROUP BY status", (lang,)
         )
     }
+
+
+def personal_pending(conn: sqlite3.Connection, limit: int | None = None) -> list[sqlite3.Row]:
+    """Personal words with no pre-pass verdict yet, most-used first (any language)."""
+    q = (
+        "SELECT pw.lang, pw.lemma, pw.count FROM personal_words pw"
+        " WHERE pw.status = 'pending' AND NOT EXISTS ("
+        "   SELECT 1 FROM personal_targets pt"
+        "   WHERE pt.known_lang = pw.lang AND pt.known = pw.lemma)"
+        " ORDER BY pw.count DESC, pw.lemma"
+    )
+    return list(conn.execute(q + (f" LIMIT {int(limit)}" if limit else "")))
+
+
+def apply_personal_targets(
+    conn: sqlite3.Connection, lang: str, results: list[dict]
+) -> tuple[int, int]:
+    """Record pre-pass verdicts: mapped (lemma_id set) or skipped (reason).
+
+    Args:
+        results: Dicts with keys known, lemma_id (None when skipped),
+            skip_reason.
+
+    Returns:
+        (mapped, skipped) counts.
+    """
+    ts = now()
+    mapped = skipped = 0
+    for r in results:
+        conn.execute(
+            "INSERT INTO personal_targets (known_lang, known, lemma_id, skip_reason)"
+            " VALUES (?, ?, ?, ?)"
+            " ON CONFLICT(known_lang, known) DO UPDATE SET lemma_id=excluded.lemma_id,"
+            " skip_reason=excluded.skip_reason",
+            (lang, r["known"], r["lemma_id"], r.get("skip_reason", "")),
+        )
+        conn.execute(
+            "UPDATE personal_words SET status=?, updated_at=? WHERE lang=? AND lemma=?",
+            ("mapped" if r["lemma_id"] else "skipped", ts, lang, r["known"]),
+        )
+        mapped += bool(r["lemma_id"])
+        skipped += not r["lemma_id"]
+    conn.commit()
+    return mapped, skipped
+
+
+def personal_skip_reasons(conn: sqlite3.Connection, lang: str) -> dict[str, str]:
+    """Skip reasons for the language's skipped words, keyed by word."""
+    return {
+        r["known"]: r["skip_reason"]
+        for r in conn.execute(
+            "SELECT known, skip_reason FROM personal_targets"
+            " WHERE known_lang = ? AND lemma_id IS NULL",
+            (lang,),
+        )
+    }
+
+
+def poll_personal_untranslated(conn: sqlite3.Connection, n: int) -> list[sqlite3.Row]:
+    """Personal-linked target lemmas with no card yet, most-used personal word first.
+
+    Joins the mapping and the chat count so the card-writing agent works from
+    the same poll shape as the frequency worklist.
+    """
+    return list(
+        conn.execute(
+            """SELECT l.lemma, l.freq_rank, l.freq, l.forms, l.cognate_class,
+                      pt.known AS personal_known, pt.known_lang AS personal_lang
+               FROM lemmas l
+               JOIN personal_targets pt ON pt.lemma_id = l.id
+               JOIN personal_words pw ON pw.lang = pt.known_lang AND pw.lemma = pt.known
+               WHERE l.status = 'worklist'
+               ORDER BY pw.count DESC, l.lemma
+               LIMIT ?""",
+            (n,),
+        )
+    )

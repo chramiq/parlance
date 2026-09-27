@@ -1,4 +1,4 @@
-"""Practice subsystem (ADR-0006): Gemini Live drills over the store.
+"""Practice subsystem: Gemini Live drills over the store.
 
 Session = Live API conversation with function calls bridged to the store.
 Memory persistence is sqlite; the model never owns state: each session opens
