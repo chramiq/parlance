@@ -23,7 +23,7 @@ GUIDs so reimports update in place.
 | `parlance/deck/` | Anki emission: `model.py` (note types + templates), `build.py` (genanki, GUID/due/media) |
 | `parlance/tts.py` | TTS providers + content-hash audio cache (edge-tts default) |
 | `parlance/chats/` | Meta DIY export ingestion (`meta.py`) + personal pre-pass (`translate.py`): the owner's words -> gated wordlist -> target lemmas |
-| `parlance/prompts/` | agent instruction files (`vocab.md`, `audit.md`, `practice.md`); profile JSON is rendered in at build time |
+| `parlance/prompts/` | agent instruction files (`vocab.md`, `audit.md`, `translate.md`, `practice.md`): language-pair-agnostic workflow text, `{KNOWN}`/`{TARGET}` placeholders; profile JSON is rendered in at build time |
 | `docs/` | architecture decision records (`INDEX.md` + one file per ADR) — read these for why |
 | `tests/` | pytest; agents run offline against TestModel/FunctionModel |
 | `var/` | all runtime state (gitignored): `parlance.db`, audio cache, chat exports |

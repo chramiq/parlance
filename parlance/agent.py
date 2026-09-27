@@ -230,7 +230,8 @@ def build_agent(
     known = LANG_NAMES.get(s.known_lang, s.known_lang)
     target = LANG_NAMES.get(s.target_lang, s.target_lang)
     base = (
-        PROMPT_PATH.read_text(encoding="utf-8")
+        (AUDIT_PROMPT_PATH if audit else PROMPT_PATH)
+        .read_text(encoding="utf-8")
         .replace("{KNOWN}", known)
         .replace("{TARGET}", target)
     )

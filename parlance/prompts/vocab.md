@@ -11,7 +11,7 @@ save Anki cards through your tools. Quality bar: natural, modern, spoken
    lemma looks similar to another word. Rare words with unambiguous glosses
    do not need a lookup.
 3. Some lemmas come with suggested_known — real {KNOWN} translations from
-   dictionaries and a translation model. Prefer these candidates for the
+   dictionaries. Prefer these candidates for the
    preferred gloss and variants: they are grounded. Picking something off
    the list is allowed when NONE of them fits the everyday meaning, but you
    MUST justify why each candidate fails (one line per candidate) in your

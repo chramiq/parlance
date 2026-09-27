@@ -18,6 +18,7 @@ from collections.abc import Iterator
 from pathlib import Path
 
 from . import store
+from .worklist import SOURCE_URL_TEMPLATE
 
 KAIKKI_URL = "https://kaikki.org/dictionary/downloads/{lang}/{lang}-extract.jsonl.gz"
 
@@ -74,9 +75,6 @@ def build_pairs(
     }
 
 
-FORMS_URL_TEMPLATE = "https://raw.githubusercontent.com/hermitdave/FrequencyWords/master/content/2018/{lang}/{lang}_50k.txt"
-
-
 def build_words(conn: sqlite3.Connection, lang: str, cache_dir: Path) -> dict:
     """Validation lexicon for a language: edition headwords + frequency-list surface forms.
 
@@ -92,7 +90,7 @@ def build_words(conn: sqlite3.Connection, lang: str, cache_dir: Path) -> dict:
     forms_path = cache_dir / f"{lang}_50k.txt"
     if not forms_path.exists():
         cache_dir.mkdir(parents=True, exist_ok=True)
-        urllib.request.urlretrieve(FORMS_URL_TEMPLATE.format(lang=lang), forms_path)
+        urllib.request.urlretrieve(SOURCE_URL_TEMPLATE.format(lang=lang), forms_path)
     with open(forms_path, encoding="utf-8") as f:
         for line in f:
             parts = line.split()

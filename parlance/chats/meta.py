@@ -19,8 +19,7 @@ from pathlib import Path
 import simplemma
 
 from .. import store
-
-FREQ_URL = "https://raw.githubusercontent.com/hermitdave/FrequencyWords/master/content/2018/{lang}/{lang}_50k.txt"
+from ..worklist import SOURCE_URL_TEMPLATE
 
 # Localized template strings Meta writes as message content. Matched after
 # the mojibake fix; extend when a new export vintage/provenance adds templates.
@@ -55,7 +54,7 @@ def ensure_wordlist(path: Path, lang: str) -> None:
     if path.exists():
         return
     path.parent.mkdir(parents=True, exist_ok=True)
-    urllib.request.urlretrieve(FREQ_URL.format(lang=lang), path)
+    urllib.request.urlretrieve(SOURCE_URL_TEMPLATE.format(lang=lang), path)
 
 
 def load_gate(path: Path) -> tuple[dict[str, int], dict[str, str]]:

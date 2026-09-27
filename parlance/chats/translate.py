@@ -10,6 +10,7 @@ other through the status system.
 import json
 from collections import Counter
 from itertools import batched
+from pathlib import Path
 
 import simplemma
 from pydantic import BaseModel, Field
@@ -20,18 +21,7 @@ from .. import store, worklist
 from ..agent import LANG_NAMES, build_model
 from ..config import Settings
 
-INSTRUCTIONS = """You map words a learner actually uses in {KNOWN} to the {TARGET}
-lemma they would need to say the same thing. For each input word, choose
-exactly one everyday {TARGET} word in dictionary form, or skip it with a reason.
-
-- candidates (when given) are real dictionary translations; prefer a
-  candidate that fits everyday speech.
-- SKIP with a reason when the word is a function word or filler the learner
-  obviously knows, pure noise or a typo, or has no meaningful standalone
-  equivalent. Slang and profanity are real vocabulary: never skip them.
-- Echo every input word exactly once; never invent words that were not in
-  the input.
-"""
+PROMPT_PATH = Path(__file__).parent.parent / "prompts" / "translate.md"
 
 
 class WordTarget(BaseModel):
@@ -151,10 +141,11 @@ def translate_pending(
     model = model or build_model(s)
     fallback = [50_000]
 
+    template = PROMPT_PATH.read_text(encoding="utf-8")
     for lang in sorted({r["lang"] for r in pending}):
         known = LANG_NAMES.get(lang, lang)
         target = LANG_NAMES.get(s.target_lang, s.target_lang)
-        instructions = INSTRUCTIONS.replace("{KNOWN}", known).replace("{TARGET}", target)
+        instructions = template.replace("{KNOWN}", known).replace("{TARGET}", target)
         agent = Agent(model, output_type=WordTargets, retries=5, instructions=instructions)
         for chunk in batched([r for r in pending if r["lang"] == lang], batch):
             words = [r["lemma"] for r in chunk]
