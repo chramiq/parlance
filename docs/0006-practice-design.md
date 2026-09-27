@@ -37,12 +37,18 @@ practice, non-sensitive by construction.
   when flow matters — the coach's judgment, not a config flag.
 - **Voice I/O: hands-free default.** Continuous mic stream (16 kHz PCM),
   automatic server-side voice activity detection, barge-in flushes the local
-  playout queue. The SDK's own examples stream identically; server-side VAD
-  carries open-speaker use. `--text` gives a typed transport for scripted
-  use. Client-side VAD configuration (sensitivities, `proactive_audio`,
-  push-to-talk via manual activity events) stays in reserve behind flags.
-  Context stays lean over long sessions via
-  `turn_coverage = TURN_INCLUDES_ONLY_ACTIVITY`.
+  playout queue. Server-side VAD carries open-speaker use. `--text` gives a
+  typed transport for scripted use. Client-side VAD configuration
+  (sensitivities, push-to-talk via manual activity events) stays in reserve
+  behind flags. Long drills survive two ceilings via sliding-window context
+  compression (the audio-session cap) and a reconnect policy with
+  resumption handles (the connection cap).
+- **Transport: pydantic-ai realtime, not the raw Live websocket.** The coach
+  is a pydantic-ai agent whose tools are the store; the realtime session
+  runs the tool loop, transcriptions, compression and reconnect policy once
+  over one persistent connection. What stays hand-rolled: the sounddevice
+  plumbing (mic pump, playback thread, mic check), the JSONL transcript, and
+  the forced closing summary.
 - **Memory = our SQLite store, not an agent-memory product.** The agent
   memory landscape (extraction pipelines, temporal graphs, self-editing
   runtimes) solves persistence for sprawling general chats at the price of
@@ -58,8 +64,9 @@ practice, non-sensitive by construction.
 
 ## Architecture
 
-- `parlance practice` runs the session: mic/speaker/websocket lifecycle,
-  bridging Live **function calls** to local tools over the store.
+- `parlance practice` runs the session: one pydantic-ai realtime session per
+  drill whose single event consumer feeds transcript, playback and stats;
+  mic/speaker lifecycle stays local.
 - Tools in-session: `get_practice_targets(n)`, `log_error(pattern, wrong,
   right, lemma?)`, `save_session_summary(text)`. The coach writes its own
   memory through them; the loop enforces a closing summary and otherwise
@@ -90,12 +97,15 @@ practice, non-sensitive by construction.
 - Audio-out only: no TEXT response modality; text arrives as output
   transcription, learner speech as input transcription — any plan for a
   separate speech-to-text step is obsolete on this path.
-- Text input works via `send_realtime_input(text=...)`; per-turn latency is
-  dominated by audio generation, so Live is never a batch surface —
-  translations are consumed in-session only.
-- `session.receive()` yields a per-turn stream that ends at `turn_complete`
-  and must be re-called; a single persistent read loop goes deaf after the
-  first turn.
+- Per-turn latency is dominated by audio generation, so Live is never a
+  batch surface — translations are consumed in-session only.
+- On the 3.8 Live models tool calls default to NON_BLOCKING, which
+  completes the turn before the tool result lands and delivers the
+  post-tool speech as a separate later turn; pydantic-ai realtime declares
+  tools BLOCKING unless told otherwise, which is the semantic the drill's
+  turns are built on.
+- A realtime session is iterated exactly once: the event consumer is a
+  single long-lived pump, not a per-turn receive loop.
 
 ## Code
 

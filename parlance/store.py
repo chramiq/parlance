@@ -110,6 +110,11 @@ CREATE TABLE IF NOT EXISTS personal_targets (
     skip_reason TEXT NOT NULL DEFAULT '',
     PRIMARY KEY (known_lang, known)
 );
+CREATE TABLE IF NOT EXISTS anki_reviews (
+    lemma TEXT NOT NULL,
+    reviewed_on TEXT NOT NULL,
+    PRIMARY KEY (lemma, reviewed_on)
+) WITHOUT ROWID;
 """
 
 
@@ -358,6 +363,37 @@ def pair_suggestions(
             (target_lang, known_lang, lemma, limit),
         )
     ]
+
+
+def record_anki_reviews(
+    conn: sqlite3.Connection, lemmas: Iterable[str], day: str
+) -> tuple[int, list[str]]:
+    """Record lemmas reviewed in Anki on a day; only generated cards are kept.
+
+    Args:
+        conn: Open connection from connect().
+        lemmas: Lemma strings pulled from AnkiConnect.
+        day: ISO date the reviews happened on.
+
+    Returns:
+        (stored count, lemmas with no generated card in the store).
+    """
+    stored = 0
+    unknown: list[str] = []
+    for lemma in lemmas:
+        known = conn.execute(
+            """SELECT 1 FROM lemmas l JOIN content c ON c.lemma_id = l.id
+               WHERE l.lemma = ? AND l.status = 'generated'
+                 AND c.kind IN ('lemma', 'personal')""",
+            (lemma,),
+        ).fetchone()
+        if known is None:
+            unknown.append(lemma)
+            continue
+        conn.execute("INSERT OR IGNORE INTO anki_reviews VALUES (?, ?)", (lemma, day))
+        stored += 1
+    conn.commit()
+    return stored, unknown
 
 
 def open_practice_session(conn: sqlite3.Connection, model: str, scenario: str = "") -> int:

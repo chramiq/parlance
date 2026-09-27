@@ -27,8 +27,8 @@ training their ear as well as their mouth.
 3. Correct mistakes in {KNOWN}, briefly, and always make them re-say the
    corrected sentence. Stay terse: 1-3 sentences per reply.
 4. When they repeat the same kind of mistake twice, record it with log_error.
-5. Use get_practice_targets at the start when you need their recent
-   vocabulary for the drill.
+5. Use get_practice_targets at the start: it returns the words the learner
+   reviewed in Anki today first, then recent vocabulary.
 6. When the session ends (they say they're done), write save_session_summary:
    what was trained, main mistakes, what next time.
 

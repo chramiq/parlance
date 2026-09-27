@@ -5,6 +5,7 @@ own output stays plain text.
 """
 
 import json
+import logging
 import re
 import sqlite3
 from contextlib import closing
@@ -193,6 +194,13 @@ def build_model(s: Settings) -> GoogleModel:
     if not s.gemini_api_key:
         raise RuntimeError("GEMINI_API_KEY is required (see .env.example)")
     from google.genai.types import HttpRetryOptions
+
+    # google-genai logs its "direct AFC in generate_content is not
+    # recommended" advisory once per process on every plain request; our
+    # tools are raw schemas, so AFC never engages and the line is noise
+    logging.getLogger("google_genai.models").addFilter(
+        lambda r: "automatic function calling" not in r.getMessage()
+    )
 
     return GoogleModel(
         s.gemini_model,

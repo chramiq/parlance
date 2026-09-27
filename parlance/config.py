@@ -31,6 +31,10 @@ class Settings(BaseSettings):
     tts_rate: str = "-25%"
     chat_self_name: str = ""
 
+    # AnkiConnect endpoint (desktop Anki with the add-on); practice pulls
+    # today's reviewed words from here at session open
+    anki_connect_url: str = "http://127.0.0.1:8765"
+
     data_dir: Path = Field(default_factory=lambda: _PACKAGE_ROOT / "var")
     worklist_scan_forms: int = 20000
 

@@ -12,14 +12,15 @@ GUIDs so reimports update in place.
 
 | Path | What lives there |
 |---|---|
-| `parlance/cli.py` | typer CLI: `worklist`, `init`, `generate`, `deck build`, `audit`, `lexicon`, `chats`, `profile`, `practice`, `practice-log` |
+| `parlance/cli.py` | typer CLI: `worklist`, `init`, `generate`, `deck build`, `audit`, `lexicon`, `chats`, `profile`, `practice`, `practice-log`, `anki-sync` |
 | `parlance/config.py` | pydantic-settings from `.env`: Gemini key/model, language pair, paths |
 | `parlance/store.py` | SQLite source of truth: lemmas, content, changes journal, lexicon hints/words, practice sessions |
 | `parlance/worklist.py` | frequency list -> simplemma lemma queue, dedup vs store |
 | `parlance/cognates.py` | known-language vocab map + orthographic similarity tags; the model owns all cognate judgments |
 | `parlance/agent.py` | the single pydantic-ai agent + store tools (poll_vocab, lookup, submit_translations, set_statuses, save_pair_profile; review_sample in audit mode); tool-arg schemas are the validation boundary |
 | `parlance/lexicon.py` | hint grounding: kaikki edition pairs + validation wordlist |
-| `parlance/practice.py` | voice drill session over Gemini Live: digest, tools, session lifecycle, transcript |
+| `parlance/practice.py` | voice drill session as a pydantic-ai realtime agent over Gemini Live: digest, store tools, session lifecycle, transcript |
+| `parlance/anki.py` | AnkiConnect client: today's reviewed words off desktop Anki (read-only relay: phone -> AnkiWeb -> desktop) |
 | `parlance/deck/` | Anki emission: `model.py` (note types + templates), `build.py` (genanki, GUID/due/media) |
 | `parlance/tts.py` | TTS providers + content-hash audio cache (edge-tts default) |
 | `parlance/chats/` | Meta DIY export ingestion (`meta.py`) + personal pre-pass (`translate.py`): the owner's words -> gated wordlist -> target lemmas |
@@ -34,7 +35,7 @@ GUIDs so reimports update in place.
 
 | Component | Purpose |
 |---|---|
-| pydantic-ai | agents, structured output (ToolOutput/NativeOutput/PromptedOutput), TestModel/FunctionModel for offline tests |
+| pydantic-ai | agents, realtime sessions (Gemini Live practice), structured output (ToolOutput/NativeOutput/PromptedOutput), TestModel/FunctionModel for offline tests |
 | Gemini API | one API key + one model name in `.env`; `GoogleModel` + `GoogleProvider` (google-genai under the hood); same key serves Live (practice) |
 | genanki | .apkg emission, deterministic `guid=`, `due=` new-card ordering, `::` subdecks |
 | simplemma | lemmatization for both languages (dictionary-based, offline, pl + cs) |

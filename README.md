@@ -27,7 +27,13 @@ uv run parlance generate         # write cards (restart-loop, resumable)
 uv run parlance deck build       # emit the .apkg into var/out/
 uv run parlance audit            # proofread stored cards, fix defects
 uv run parlance practice         # voice drills (Gemini Live)
+uv run parlance anki-sync        # pull today's Anki reviews into the store
 ```
+
+The practice pull also runs automatically at every session open: reviews
+made on the phone flow through AnkiWeb into desktop Anki (with the
+AnkiConnect add-on, code 2055492159, running there), and the coach drills
+today's reviewed words first.
 
 Optional: import your own chat exports for a personal deck
 (`parlance chats import`, then `generate --deck personal`).

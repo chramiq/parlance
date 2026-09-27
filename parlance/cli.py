@@ -281,6 +281,33 @@ def practice_log(
         typer.echo(f"--- summary ---\n  {sess['summary']}")
 
 
+@app.command("anki-sync")
+def anki_sync():
+    """Pull today's Anki reviews into the store (via AnkiConnect on desktop Anki)."""
+    from datetime import date
+
+    from . import anki
+
+    s = get_settings()
+    try:
+        lemmas = anki.fetch_reviewed_today(s.anki_connect_url)
+    except anki.AnkiConnectError as e:
+        typer.echo(f"error: {e}")
+        raise typer.Exit(1)
+    with closing(store.connect(s.db_path)) as conn:
+        # Anki "today" is the local calendar day
+        stored, unknown = store.record_anki_reviews(
+            conn,
+            lemmas,
+            date.today().isoformat(),  # noqa: DTZ011
+        )
+    typer.echo(
+        f"reviewed today: {len(lemmas)} notes, {stored} stored, {len(unknown)} unknown to the store"
+    )
+    if unknown:
+        typer.echo("not in store: " + ", ".join(unknown))
+
+
 @chats_app.command("import")
 def chats_import(
     paths: Annotated[list[Path], typer.Argument(help="Extracted Meta export directories.")],

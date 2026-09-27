@@ -1,7 +1,7 @@
 import json
 
 from parlance import store
-from parlance.practice import PracticeTools, dispatch, function_declarations
+from parlance.practice import PracticeTools, build_practice_agent
 
 
 def test_session_lifecycle_and_digest(tmp_path):
@@ -31,17 +31,10 @@ def test_tools_roundtrip(tmp_path):
     sid = store.open_practice_session(conn, "gemini-3.8-live")
     tools = PracticeTools(conn_path=db, session_id=sid)
 
-    targets = dispatch(tools, "get_practice_targets", {"n": 5})
+    targets = tools.get_practice_targets(n=5)
     assert targets == [{"lemma": "mięso", "gloss": "maso", "example": "Poproszę mięso."}]
-    assert (
-        dispatch(
-            tools,
-            "log_error",
-            {"pattern": "aspekt", "wrong": "kupuję", "right": "kupię", "lemma": "kupić"},
-        )
-        == "logged"
-    )
-    assert dispatch(tools, "save_session_summary", {"summary": "drill hotov"}) == "saved"
+    assert tools.log_error("aspekt", "kupuję", "kupię", lemma="kupić") == "logged"
+    assert tools.save_session_summary("drill hotov") == "saved"
     row = conn.execute("SELECT pattern, lemma FROM practice_errors").fetchone()
     assert (row["pattern"], row["lemma"]) == ("aspekt", "kupić")
     assert (
@@ -52,9 +45,27 @@ def test_tools_roundtrip(tmp_path):
     )
 
 
-def test_declarations_match_dispatch():
-    names = {d["name"] for d in function_declarations()}
-    assert names == {"get_practice_targets", "log_error", "save_session_summary"}
+def test_agent_tools_wired_to_store(tmp_path):
+    from pydantic_ai.models.test import TestModel
+
+    from parlance.practice import PracticeDeps
+
+    db = tmp_path / "t.db"
+    conn = store.connect(db)
+    sid = store.open_practice_session(conn, "gemini-3.8-live")
+    agent = build_practice_agent("You are a drill coach. Use your tools.")
+    with agent.override(model=TestModel()):
+        # TestModel calls every registered tool once; the store must reflect
+        # each side effect for the wiring to be real
+        result = agent.run_sync("drill me", deps=PracticeDeps(db_path=db, session_id=sid))
+        assert result.output
+    assert conn.execute("SELECT COUNT(*) c FROM practice_errors").fetchone()["c"] == 1
+    assert (
+        conn.execute("SELECT summary != '' s FROM practice_sessions WHERE id=?", (sid,)).fetchone()[
+            "s"
+        ]
+        == 1
+    )
 
 
 def test_transcript_turns_aggregates_chunks(tmp_path):
