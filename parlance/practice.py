@@ -5,11 +5,16 @@ Memory persistence is sqlite; the model never owns state: each session opens
 with a digest (recent summaries, recurring error patterns, targets) and
 closes by journaling a summary via save_session_summary.
 
-Typed transport now (voice mounts in P3): the user types, the model answers
-with AUDIO (Live is audio-only) which we do not play — output transcription
-is the text channel. Turns are disciplined: one line in, one full model turn
-out, prompt again.
+Two transports share one session config: run_practice (typed in, no playback)
+and run_practice_voice (mic/speaker, auto-VAD, barge-in). Live answers with
+AUDIO only, so in typed mode the output transcription is the text channel.
+Turns are disciplined: one line or utterance in, one full model turn out.
 """
+
+# Tools that must finish before the model continues (targets before drilling,
+# summary before disconnect) are BLOCKING: the Live default NON_BLOCKING
+# completes the turn before the tool result lands, and the post-tool speech
+# arrives as a separate later turn.
 
 from __future__ import annotations
 
@@ -68,6 +73,7 @@ def function_declarations() -> list[dict]:
         {
             "name": "get_practice_targets",
             "description": "Recent vocabulary cards (lemma, gloss, example sentence) to drill.",
+            "behavior": "BLOCKING",
             "parameters": {
                 "type": "OBJECT",
                 "properties": {"n": {"type": "INTEGER", "description": "how many, ~10"}},
@@ -90,6 +96,7 @@ def function_declarations() -> list[dict]:
         {
             "name": "save_session_summary",
             "description": "End of session: short summary (what was trained, mistakes, recommendations).",
+            "behavior": "BLOCKING",
             "parameters": {
                 "type": "OBJECT",
                 "properties": {"summary": {"type": "STRING"}},
@@ -136,8 +143,6 @@ def dispatch(tools: PracticeTools, name: str, args: dict):
 
 
 def _connect_kwargs(s, instructions: str) -> dict:
-    from google.genai import types
-
     return {
         "model": s.gemini_live_model,
         "config": types.LiveConnectConfig(
@@ -145,8 +150,10 @@ def _connect_kwargs(s, instructions: str) -> dict:
             system_instruction=instructions,
             input_audio_transcription=types.AudioTranscriptionConfig(),
             output_audio_transcription=types.AudioTranscriptionConfig(),
-            realtime_input_config=types.RealtimeInputConfig(
-                turn_coverage="TURN_INCLUDES_ONLY_ACTIVITY"
+            # audio-only sessions are killed at 15 min without compression;
+            # drills run longer
+            context_window_compression=types.ContextWindowCompressionConfig(
+                sliding_window=types.SlidingWindow(),
             ),
             tools=[{"function_declarations": function_declarations()}],
         ),
@@ -154,8 +161,6 @@ def _connect_kwargs(s, instructions: str) -> dict:
 
 
 def _handle_tool_call(tools: PracticeTools, tool_call, stats: dict) -> list:
-    from google.genai import types
-
     calls = tool_call.function_calls or []
     responses = []
     for fc in calls:
@@ -192,9 +197,8 @@ def _open(settings_or_none, transcript_dir: Path | None):
 
 
 async def run_practice_voice(settings, transcript_dir: Path | None = None) -> dict:
-    """Hands-free voice drill (P3): continuous mic, auto-VAD, barge-in, Ctrl+C to end."""
+    """Hands-free voice drill: continuous mic, auto-VAD, barge-in, Ctrl+C to end."""
     import sounddevice as sd
-    from google import genai
 
     s, session_id, instructions, tools, transcript = _open(settings, transcript_dir)
     stats: dict = {"session_id": session_id, "turns": 0, "tool_calls": 0, "summary": False}
