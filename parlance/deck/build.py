@@ -2,7 +2,7 @@
 
 GUIDs are derived from identity (never content), deck/model IDs are fixed
 constants, and new-card position follows frequency rank -- reimport updates
-in place per docs/0003.
+in place.
 """
 
 import json
@@ -23,6 +23,7 @@ BANDS = [
     (501, 1500, "010-501-1500", 1715500002),
     (1501, None, "020-1501plus", 1715500003),
 ]
+PERSONAL_DECK_ID = 1715500004
 
 
 def _band(rank: int) -> tuple[str, int]:
@@ -83,9 +84,10 @@ async def build(s: Settings, limit: int | None = None) -> tuple[Path, dict]:
     """
     with closing(connect(s.db_path)) as conn:
         query = """
-            SELECT l.lemma, l.freq_rank, l.forms, l.cognate_class, c.preferred_gloss, c.payload
+            SELECT l.lemma, l.freq_rank, l.forms, l.cognate_class, c.kind, c.preferred_gloss,
+                   c.payload
             FROM content c JOIN lemmas l ON l.id = c.lemma_id
-            WHERE c.kind = 'lemma' AND l.status = 'generated'
+            WHERE c.kind IN ('lemma', 'personal') AND l.status = 'generated'
             ORDER BY l.freq_rank
         """
         if limit:
@@ -107,7 +109,10 @@ async def build(s: Settings, limit: int | None = None) -> tuple[Path, dict]:
     first_fields = None
     for r in rows:
         payload = json.loads(r["payload"])
-        suffix, deck_id = _band(r["freq_rank"])
+        if r["kind"] == "personal":
+            suffix, deck_id = "personal", PERSONAL_DECK_ID
+        else:
+            suffix, deck_id = _band(r["freq_rank"])
         if deck_id not in decks:
             decks[deck_id] = genanki.Deck(deck_id, f"{root}::{suffix}")
             package_decks.append(decks[deck_id])
@@ -130,9 +135,12 @@ async def build(s: Settings, limit: int | None = None) -> tuple[Path, dict]:
         note = genanki.Note(
             model=cognate if r["cognate_class"] == "free" else model,
             fields=field_values,
-            guid=f"lemma:{r['lemma']}",
+            # personal notes get their own guid prefix: kinds can never share
+            # a lemma (status dedup), but a collision would silently corrupt
+            # reimports -- a visible duplicate is the recoverable failure
+            guid=f"{r['kind']}:{r['lemma']}",
             due=r["freq_rank"],
-            tags=[],
+            tags=["personal"] if r["kind"] == "personal" else [],
         )
         decks[deck_id].add_note(note)
 
@@ -146,6 +154,7 @@ async def build(s: Settings, limit: int | None = None) -> tuple[Path, dict]:
         _write_preview(model, first_fields, model.css, out_dir / "preview.html")
     counts = {
         "notes": len(rows),
+        "personal": sum(1 for r in rows if r["kind"] == "personal"),
         "cards": sum(1 if r["cognate_class"] == "free" else 2 for r in rows),
         "media": len(package.media_files),
         "out": str(out_path),

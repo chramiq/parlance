@@ -7,7 +7,7 @@ from pydantic_ai.models.function import AgentInfo, FunctionModel
 from parlance import store
 from parlance.agent import Deps, build_agent
 from parlance.config import Settings
-from parlance.lexicon import build_pairs, iter_translations, parse_hint_json
+from parlance.lexicon import build_pairs, iter_translations
 
 
 def _write_extract(dir_, lang, entries):
@@ -32,27 +32,16 @@ CS_ENTRIES = [
 ]
 
 
-def test_parse_hint_json():
-    good = '[["hledat", "vyhledávat"], ["pot"], "jediný"]'
-    assert parse_hint_json(good) == [["hledat", "vyhledávat"], ["pot"], ["jediný"]]
-    narrated = 'Tak pozor:\n```json\n[["a"], ["b", "c"]]\n```'
-    assert parse_hint_json(narrated) == [["a"], ["b", "c"]]
-    assert parse_hint_json("no array here at all") is None
-    assert parse_hint_json('["broken", ') is None
-
-
 def test_merge_pairs_unions_sources(tmp_path):
     conn = store.connect(tmp_path / "t.db")
-    store.merge_pairs(conn, "pl", "cs", [("móc", "moci", "gemini-live")])
-    store.merge_pairs(
-        conn, "pl", "cs", [("móc", "moci", "cswikt-inv"), ("móc", "moct", "gemini-live")]
-    )
+    store.merge_pairs(conn, "pl", "cs", [("móc", "moci", "llm")])
+    store.merge_pairs(conn, "pl", "cs", [("móc", "moci", "cswikt-inv"), ("móc", "moct", "llm")])
     rows = conn.execute(
         "SELECT known, sources FROM lexicon_pairs WHERE target='móc' ORDER BY known"
     ).fetchall()
     assert [(r["known"], sorted(__import__("json").loads(r["sources"]))) for r in rows] == [
-        ("moci", ["cswikt-inv", "gemini-live"]),
-        ("moct", ["gemini-live"]),
+        ("moci", ["cswikt-inv", "llm"]),
+        ("moct", ["llm"]),
     ]
 
 
@@ -103,7 +92,7 @@ def test_antifabrication_validator_rejects_nonword(tmp_path):
     db = tmp_path / "t.db"
     conn = store.connect(db)
     store.add_lemmas(conn, [{"lemma": "uciekać", "freq_rank": 1, "freq": 9, "forms": ["ucieka"]}])
-    store.merge_pairs(conn, "pl", "cs", [("uciekać", "utíkat", "gemini-live")])
+    store.merge_pairs(conn, "pl", "cs", [("uciekać", "utíkat", "llm")])
     store.replace_words(conn, "cs", {"utíkat", "zmizet"})
 
     bad_draft = {

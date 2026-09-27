@@ -51,8 +51,9 @@ those model replies as its rubric. The stack, in descending effort:
 3. **Desktop, optional: LLM Answer Grader add-on (AnkiWeb 365951175).**
    Purpose-made for language production: inline text box, 0–100 score with
    error feedback and a suggested Again/Hard/Good/Easy, and — decisive for
-   us — it accepts any OpenAI-compatible endpoint, i.e. the same LiteLLM
-   gateway from `.env`. We document the three-step setup; we do not fork it.
+   us — it accepts any OpenAI-compatible endpoint, and the Gemini API
+   publishes one, so the same key from `.env` works. We document the
+   three-step setup; we do not fork it.
    (Alternatives researched: AI scorer 357495808 hooks `{{type:}}` cards
    across six providers; MyAnswerChecker 1043318428 gives a chat window.)
 4. **Voice coach: `parlance practice`.** A live conversation loop over a

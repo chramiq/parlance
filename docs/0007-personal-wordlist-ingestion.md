@@ -33,7 +33,7 @@ A word-bag with a structural privacy guarantee:
   typos are not public words), the stopword filter (public rank), and the
   language filter (English words drop under the Czech gate; an English
   stream is the same pipeline run with `--lang en` and `en_50k`).
-- **Meta DIY export realities**, probe-verified: recursive
+- **Meta DIY export realities**: recursive
   `message_*.json` discovery across export layouts; the owner is the
   participant listed in every thread; message content carries Meta's double
   encoding (UTF-8 bytes JSON-escaped as Latin-1) repaired by a latin-1
@@ -81,4 +81,3 @@ ranked by the user's own usage frequency.
 - `parlance/store.py` — `personal_words`, `chat_seen`, upserts
 - `parlance/cli.py` — `chats import`, `chats list`
 - `tests/test_chats.py` — gate/idempotency/accumulation round-trips
-- `scripts/probe_instagram.py`, `scripts/probe_instagram_noise.py` — the probes this was written against

@@ -1,7 +1,7 @@
 """The single pydantic-ai agent: generates translations, profiles pairs, and maintains the store via tools.
 
 All structured data enters the store as validated tool arguments; the agent's
-own output stays plain text. See docs/0005.
+own output stays plain text.
 """
 
 import json
@@ -12,13 +12,11 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Literal
 
-import httpx2
-from openai import AsyncOpenAI
 from pydantic import BaseModel, Field, model_validator
 from pydantic_ai import Agent, ModelRetry, RunContext
 from pydantic_ai.models import Model
-from pydantic_ai.models.openai import OpenAIChatModel
-from pydantic_ai.providers.openai import OpenAIProvider
+from pydantic_ai.models.google import GoogleModel
+from pydantic_ai.providers.google import GoogleProvider
 
 from . import store
 from .cognates import known_vocab, similar_known
@@ -131,6 +129,7 @@ class Deps:
     db_path: Path
     model_name: str
     randomize: bool = False
+    personal: bool = False
 
 
 def validate_cloze(ex: Example, corpus_forms: list[str]) -> None:
@@ -186,16 +185,25 @@ def _cognate_class(lemma: str, gloss: str, false_friend_note: str) -> str:
     return "none"
 
 
-async def strip_gateway_metadata(response: httpx2.Response) -> None:
-    """Remove nonstandard gateway routing metadata the OpenAI SDK would reject (see docs/0004)."""
-    if "application/json" not in response.headers.get("content-type", ""):
-        return
-    body = await response.aread()
-    if b"weight_version" not in body:
-        return
-    data = json.loads(body)
-    data.pop("metadata", None)
-    response._content = json.dumps(data).encode()
+def build_model(s: Settings) -> GoogleModel:
+    """Build the Gemini model (one API key, one model name)."""
+    if not s.gemini_api_key:
+        raise RuntimeError("GEMINI_API_KEY is required (see .env.example)")
+    from google.genai.types import HttpRetryOptions
+
+    return GoogleModel(
+        s.gemini_model,
+        provider=GoogleProvider(
+            api_key=s.gemini_api_key,
+            retry_options=HttpRetryOptions(
+                attempts=4,
+                initial_delay=2.0,
+                max_delay=30.0,
+                # capacity spikes surface as 503, quota bursts as 429; both heal on retry
+                http_status_codes=[408, 429, 500, 502, 503, 504],
+            ),
+        ),
+    )
 
 
 def build_agent(
@@ -208,24 +216,16 @@ def build_agent(
     """Build the one agent with its five tools over the store.
 
     Args:
-        s: Settings with the LiteLLM endpoint and language pair.
+        s: Settings with the Gemini credentials and language pair.
         db_path: Store location; tool calls open their own connections to it.
-        model: Override model (tests); built from the endpoint when omitted.
+        model: Override model (tests); built from the API key when omitted.
         extra_prompt: Optional user persona/task note appended to the
             instructions for this run (clis: --prompt).
         audit: Load the proofreader instructions (review_sample available)
             instead of the generator instructions.
     """
     if model is None:
-        if not (s.litellm_base_url and s.litellm_api_key and s.litellm_model):
-            raise RuntimeError(
-                "LITELLM_BASE_URL, LITELLM_API_KEY and LITELLM_MODEL are required (see .env.example)"
-            )
-        http = httpx2.AsyncClient(event_hooks={"response": [strip_gateway_metadata]}, timeout=120)
-        client = AsyncOpenAI(
-            base_url=s.litellm_base_url, api_key=s.litellm_api_key, http_client=http
-        )
-        model = OpenAIChatModel(s.litellm_model, provider=OpenAIProvider(openai_client=client))
+        model = build_model(s)
 
     known = LANG_NAMES.get(s.known_lang, s.known_lang)
     target = LANG_NAMES.get(s.target_lang, s.target_lang)
@@ -273,10 +273,18 @@ def build_agent(
 
         with closing(store.connect(ctx.deps.db_path)) as conn:
             out = []
-            for r in store.poll_untranslated(conn, n, ctx.deps.randomize):
+            if ctx.deps.personal:
+                rows = store.poll_personal_untranslated(conn, n)
+            else:
+                rows = store.poll_untranslated(conn, n, ctx.deps.randomize)
+            for r in rows:
                 row = dict(r) | {"forms": json.loads(r["forms"])}
                 row["similar_known"] = similar_known(r["lemma"], vocab_map)
                 hints = store.pair_suggestions(conn, r["lemma"], s.known_lang, s.target_lang)
+                if ctx.deps.personal:
+                    # the learner's own word leads the grounding: it is the
+                    # reason this card exists
+                    hints = [r["personal_known"]] + [h for h in hints if h != r["personal_known"]]
                 if hints:
                     row["suggested_known"] = hints
                 out.append(row)
@@ -353,6 +361,7 @@ def build_agent(
                         )
                     # write order matters for crash recovery: metadata first,
                     # content second, status flip last -- every window heals on re-poll.
+                    kind = "personal" if ctx.deps.personal else "lemma"
                     conn.execute(
                         "UPDATE lemmas SET pos=?, cognate_class=?, updated_at=? WHERE id=?",
                         (
@@ -366,7 +375,7 @@ def build_agent(
                     store.upsert_content(
                         conn,
                         lemma_id=row["id"],
-                        kind="lemma",
+                        kind=kind,
                         preferred_gloss=preferred,
                         payload=draft.model_dump_json(),
                         model=ctx.deps.model_name,

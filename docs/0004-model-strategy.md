@@ -1,120 +1,84 @@
-# ADR-0004: Model strategy: LiteLLM gateway, one model, output-mode ladder, thinking off for JSON
+# ADR-0004: Model strategy: Gemini API direct, one key, tool arguments as the only structure
 
 ## The problem
 
-v1 scraped the Gemini web UI with session cookies (`gemini_webapi`) — free in
-the worst way: cookies rot, and structured output was a regex hunting for a
-JSON code fence. The replacement must (a) run against an OpenAI-compatible
-LiteLLM gateway with credentials from `.env`, (b) stay provider-agnostic so
-any future key is a config change, and (c) emit *reliable* structured data
-from models whose tool-calling quality is uneven and whose "thinking" modes
-leak reasoning into the answer.
+Generation, audit, and the chat pre-pass all need one chat model that
+(a) drives a reliable function-calling loop — the store tools are the
+validation boundary (ADR-0005), so malformed structure must never reach the
+store; (b) translates well for arbitrary language pairs, which is the
+product's actual quality bar; and (c) asks for the smallest possible
+credential surface, because every extra key, endpoint, and quota rule is
+setup friction and a new failure mode.
 
 ## What we tried first, and why it wasn't enough
 
-Asking nicely for JSON (v1). Batch of 20 words, "respond ONLY with valid
-JSON", regex fallback. It mostly worked because the model was strong — and
-failed structurally: no validation loop, no retry with the error fed back,
-no schema the model is mechanically held to.
+Routing through intermediate gateways to reach a model. A proxy adds a
+base URL, a key, and a model namespace on top of the provider's own —
+and every quirk at that boundary (nonstandard response envelopes, uneven
+tool-calling quality per proxied model, reasoning tokens leaking into
+content) becomes defensive code in the repo. Account-session clients
+(borrowed cookies or CLI OAuth tokens) remove the API key entirely but
+trade it for credential rot, rate opaqueness, and terms-of-service
+exposure; neither supports the native function-calling contract the
+agent depends on. Both approaches also leave translation quality to
+whichever model the intermediary happens to serve.
 
 ## What we built instead
 
-**pydantic-ai v2 over `OpenAIChatModel`** — the chat-completions class, not
-the Responses-API one, because LiteLLM gateways speak Chat Completions and
-the Responses API is OpenAI-specific surface:
+**One API key, one model name, direct to the provider.** The agent, audit,
+and chat pre-pass all run on pydantic-ai's `GoogleModel` over
+`GoogleProvider`, built by a single factory:
 
 ```python
-model = OpenAIChatModel(
-    settings.model,  # one name, from .env
-    provider=OpenAIProvider(base_url=settings.llm_base_url, api_key=settings.llm_api_key),
+model = GoogleModel(
+    settings.gemini_model,
+    provider=GoogleProvider(api_key=settings.gemini_api_key, retry_options=...),
 )
-agent = Agent(model, output_type=[FlashcardBatch, str], retries={"output": 3})
 ```
 
-One model name, one key, one base URL — everything provider-ish lives in
-`.env`, so swapping model or gateway never touches code.
+`GEMINI_API_KEY` and `GEMINI_MODEL` are the whole LLM configuration; the
+same key already serves the Live-API practice sessions, so the project's
+entire credential surface is one key. Billing on the key's project unlocks
+the paid tier — higher rate limits, Pro models, and prompts excluded from
+training — while the monthly cloud credits that ship with the consumer
+subscription absorb this workload's cost at these volumes.
 
-**Output-mode ladder.** pydantic-ai supports three structured-output modes;
-the choice per deployment is data (what the gateway's model actually honors):
+**Transport retries at the provider.** Capacity spikes on flash-tier
+models surface as transient 503s and quota bursts as 429s; both heal on
+retry, so `HttpRetryOptions` (attempts with backoff on 408/429/5xx)
+is configured once in the factory. Semantic failures stay the agent's own
+affair: validation `ModelRetry`s feed errors back to the model, unchanged.
 
-1. `NativeOutput` — JSON-schema response_format, strongest when the model
-   offers it natively.
-2. `ToolOutput` (the library default) — output as a tool call; works with
-   virtually everything that has function calling through an
-   OpenAI-compatible gateway.
-3. `PromptedOutput` — schema injected into instructions + lenient parse +
-   validation retry. The floor for models whose tool calling proves flaky
-   through the proxy.
+**No output-mode machinery.** Gemini's function calling is the strong
+native path: agent output stays plain text, and every card, status change,
+and profile enters the store as validated tool arguments exactly as
+designed in ADR-0005. There is no JSON-mode ladder, no response-body
+patching, no thinking-leak workaround — nothing between the schema and
+the model.
 
-**Thinking stays off the JSON path.** Thinking-style models can leak
-reasoning into content or refuse forced tool choice (documented
-provider-side); `ModelSettings` turns thinking off for extraction/generation
-steps. Semantic validation does the real correctness work regardless:
-`@agent.output_validator` raising `ModelRetry` ("sentence must contain a form
-of lemma X", "cloze must be derivable from the sentence") feeds the error
-back until the batch validates — the mechanism v1 faked with tenacity.
-
-**Offline by default in dev.** `TestModel` auto-generates schema-valid output
-and `FunctionModel` scripts the tool loop, so the agent — batch generation,
-curation tools, grading later — is testable with zero API keys. Probe scripts
-hit the real endpoint exactly once per integration, when the endpoint's
-behavior is pinned (per the probe-first rule in AGENTS.md).
-
-Model fitness for this workload (translate/draft/grade text into JSON):
-any modern chat model available on the gateway is comfortably sufficient;
-the binding constraint is JSON adherence, which the ladder above plus output
-retries absorbs.
+**Offline by default in dev.** `TestModel` and `FunctionModel` cover every
+agent mode with zero keys.
 
 ## What this enables
 
-- The entire migration off scraped cookies is one `.env` edit; a different
-  key or gateway later is the same edit.
-- Weak-model breakage degrades a rung on the ladder instead of corrupting a
-  deck.
-- `result.usage` aggregates tokens per run, so `generate` prints a token bill
-  per 1000 lemmas before it spends.
+- Setup is two lines in `.env` next to the language pair; model upgrades
+  (flash ↔ pro) are a one-value edit.
+- Translation quality tracks a top multilingual model instead of a
+  gateway's cheapest resident.
+- `result.usage` still aggregates per run, and on a billed key the cost
+  is real money — visible per run, cents per hundred cards.
 
 ## What it cost us
 
-- `PromptedOutput` mode exists but is deliberately unwired from happy-path
-  defaults; if a model needs it, that is a config smell to investigate, not a
-  silent fallback.
-- Provider quirks (single-system-message merges, non-strict tool JSON) are
-  handled by `OpenAIModelProfile` knobs only when actually observed — we do
-  not pre-configure for gateway bugs we have not met.
-
-## Gateway facts
-
-Facts known about the live `.env` gateway that change the design:
-
-- **Envelope quirk (gateway routing metadata).** The gateway annotates
-  responses with `metadata: {"weight_version": "default", "weight_versions":
-  [{"version": "default", "start": 0, "end": N}]}` — a list of objects where
-  the strict OpenAI SDK demands `dict[str, str]`, so response validation
-  *crashes* for glm-5/5.2/5.3, kimi-k3, qwen3.8-*, mistral-medium-3.5.
-  Unaffected: qwen3.5, command-a, gemma4, gpt-oss-120b, deepseek*.
-- **The fix is an 8-line httpx response hook** run before SDK parsing:
-  strip the `metadata` key from non-streaming `application/json` bodies
-  (SSE streams pass through untouched), passed via
-  `OpenAIProvider(openai_client=AsyncOpenAI(http_client=AsyncClient(event_hooks={"response": [hook]})))`.
-  With the hook, every model passes all three output modes
-  (tool, native JSON-schema, prompted). ToolOutput stays the default.
-- **Thinking leakage is model-family-specific.** deepseek-v4-flash writes
-  its chain-of-thought into `content` on plain-text prompts (fine for tool
-  calls — unusable for plain-text steps). glm, kimi, qwen3.8, mistral return
-  reasoning separately as `reasoning_content` — zero leakage into content.
-  Rule stands: thinking off for JSON, and the structured modes carry it.
-- **Model fitness in the translation loop, ranked:** qwen3.8-27b is the
-  default engine — fast, reliable tool loop, natural sentences; its rare
-  failure is inventing a non-word gloss, which the hint grounding and
-  anti-fabrication validator (ADR-0005+) exist to hold. glm-5.3 is
-  quality-comparable but slow on a congested cluster; gpt-oss-120b fails
-  the tool loop; gemma4 fails batch reliability despite strong single-word
-  glosses.
+- Throughput depends on the key's tier: the degraded free tier (~20
+  requests/day) is not viable for batch generation; a linked billing
+  account is expected operation.
+- Rate limits and quota behavior are Google's to change; the retry layer
+  absorbs spikes, not policy shifts.
 
 ## Code
 
-- `parlance/config.py` — settings (endpoint, key, one model name) + the
-  metadata-stripping httpx hook
-- `parlance/agent.py` — the single agent on the shared model factory
+- `parlance/config.py` — `gemini_api_key`, `gemini_model` settings
+- `parlance/agent.py` — the single agent + `build_model` factory
+- `parlance/chats/translate.py` — pre-pass over the same factory
 - `tests/` — TestModel/FunctionModel coverage of every agent mode

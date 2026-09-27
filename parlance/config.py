@@ -12,8 +12,8 @@ _PACKAGE_ROOT = Path(__file__).resolve().parent.parent
 class Settings(BaseSettings):
     """Runtime configuration loaded from .env.
 
-    Endpoint fields default to None so store/worklist phases run without any
-    LLM credentials; agent phases assert them explicitly at use time. Paths
+    The API key defaults to None so store/worklist phases run without any LLM
+    credentials; agent phases assert it explicitly at use time. Paths
     anchor at the install root so the CLI behaves identically from any CWD
     (the project is expected to be installed editable, so the package root IS
     the repository root).
@@ -21,10 +21,8 @@ class Settings(BaseSettings):
 
     model_config = SettingsConfigDict(env_file=_PACKAGE_ROOT / ".env", extra="ignore")
 
-    litellm_base_url: str | None = None
-    litellm_api_key: str | None = None
-    litellm_model: str | None = None
     gemini_api_key: str | None = None
+    gemini_model: str = "gemini-3.8-flash"
 
     known_lang: str = "cs"
     target_lang: str = "pl"

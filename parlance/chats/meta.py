@@ -6,8 +6,6 @@ count form -- sentences never leave this module, and names, handles, slang
 and dialect drop out because they are not public words. Message hashes make
 re-imports idempotent and imports from several exports accumulate
 (Instagram and Facebook ship the same JSON shape).
-
-Probe reference: scripts/probe_instagram.py, scripts/probe_instagram_noise.py.
 """
 
 import hashlib
@@ -24,9 +22,8 @@ from .. import store
 
 FREQ_URL = "https://raw.githubusercontent.com/hermitdave/FrequencyWords/master/content/2018/{lang}/{lang}_50k.txt"
 
-# Localized template strings Meta writes as message content (probe-verified:
-# 2390x 'Posíláte přílohu.', 106x each call string). Matched after the
-# mojibake fix; extend when a new export vintage/provenance adds templates.
+# Localized template strings Meta writes as message content. Matched after
+# the mojibake fix; extend when a new export vintage/provenance adds templates.
 SYSTEM_STRINGS = {
     "Posíláte přílohu.",
     "Audio call ended",
@@ -86,7 +83,7 @@ def _find_owner(threads: list[dict]) -> str:
     """The participant listed in every thread who also sends messages.
 
     Participants include the owner in these exports; everyone else appears
-    only in their own conversations (probe-verified).
+    only in their own conversations.
 
     Raises:
         ValueError: when owner detection is ambiguous or empty.

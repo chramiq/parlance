@@ -52,8 +52,8 @@ def worklist_stats():
     typer.echo(store.stats(store.connect(get_settings().db_path)))
 
 
-def _content_count(conn) -> int:
-    return conn.execute("SELECT COUNT(*) n FROM content WHERE kind='lemma'").fetchone()["n"]
+def _content_count(conn, kind: str = "lemma") -> int:
+    return conn.execute("SELECT COUNT(*) n FROM content WHERE kind=?", (kind,)).fetchone()["n"]
 
 
 def _report_tool_rejects(result) -> None:
@@ -92,9 +92,7 @@ def init_profile(
         )
         if note:
             prompt += f" User note about themselves: {note}"
-        result = agent.run_sync(
-            prompt, deps=Deps(db_path=s.db_path, model_name=s.litellm_model or "unknown")
-        )
+        result = agent.run_sync(prompt, deps=Deps(db_path=s.db_path, model_name=s.gemini_model))
         typer.echo(result.output)
         typer.echo(f"usage: {result.usage}")
 
@@ -106,14 +104,22 @@ def generate(
     max_requests: int = 60,
     random_sample: bool = False,
     prompt: str = "",
+    deck: str = typer.Option("frequency", "--deck", help="frequency | personal."),
 ):
     """Translate new vocabulary cards via the agent restart-loop.
 
     random_sample polls a random corpus slice instead of the frequency head.
     prompt appends a user persona/task note to the agent's instructions for
     this run.
+    deck personal: pending chat words are pre-passed to target lemmas first,
+    then cards are written into the personal deck.
     """
+    if deck not in ("frequency", "personal"):
+        typer.echo(f"unknown deck {deck!r}: expected frequency or personal")
+        raise typer.Abort()
     s = get_settings()
+    personal = deck == "personal"
+    kind = "personal" if personal else "lemma"
     submitted = 0
     skip_clause = (
         " Cognate skipping is ENABLED for this run: for lemmas whose similar_known word "
@@ -123,28 +129,23 @@ def generate(
         else ""
     )
     with closing(store.connect(s.db_path)) as conn:
+        if personal:
+            from .chats.translate import translate_pending
+
+            typer.echo(f"pre-pass: {translate_pending(conn, s)}")
         agent = build_agent(s, s.db_path, extra_prompt=prompt)
         while submitted < count:
-            before = _content_count(conn)
+            before = _content_count(conn, kind)
             remaining = min(count - submitted, batch)
-            if not random_sample and s.gemini_api_key:
-                import asyncio as _aio
-
-                from .lexicon import hint_lemmas, lemmas_missing_hints
-
-                upcoming = [r["lemma"] for r in store.poll_untranslated(conn, remaining)]
-                missing = lemmas_missing_hints(conn, upcoming)
-                if missing:
-                    rows = _aio.run(hint_lemmas(conn, s, missing))
-                    typer.echo(f"prefill: hinted {len(missing)} lemmas ({rows} rows)")
             try:
                 result = agent.run_sync(
                     f"Submit {remaining} new vocabulary cards following your "
                     f"instructions, then report." + skip_clause,
                     deps=Deps(
                         db_path=s.db_path,
-                        model_name=s.litellm_model or "unknown",
+                        model_name=s.gemini_model,
                         randomize=random_sample,
+                        personal=personal,
                     ),
                     usage_limits=UsageLimits(request_limit=max_requests),
                 )
@@ -157,7 +158,7 @@ def generate(
             except Exception as e:  # noqa: BLE001 -- the driver must keep looping regardless of a single run's failure mode
                 report = f"run FAILED: {type(e).__name__}: {str(e)[:300]}"
                 usage = "n/a"
-            wrote = _content_count(conn) - before
+            wrote = _content_count(conn, kind) - before
             submitted += wrote
             typer.echo(f"run: wrote={wrote} total={submitted}/{count} usage={usage}")
             if report:
@@ -196,26 +197,6 @@ def lexicon_build(
     with closing(store.connect(s.db_path)) as conn:
         stats = build_pairs(conn, s.known_lang, s.target_lang, s.db_path.parent / "lexicon", src)
         stats["words"] = build_words(conn, s.known_lang, s.db_path.parent / "lexicon")
-    typer.echo(stats)
-
-
-@app.command("llm-hints")
-def lexicon_llm_hints(
-    batch: int = 20,
-    limit: int | None = typer.Option(None, help="Process at most this many lemmas (testing)."),
-    workers: int = 4,
-):
-    """Backfill gemini-live translation hints for every lemma lacking one (parallel, resumable)."""
-    import asyncio
-
-    from .lexicon import build_llm_hints as _llm
-
-    s = get_settings()
-    if not s.gemini_api_key:
-        typer.echo("GEMINI_API_KEY missing in .env")
-        raise typer.Abort()
-    with closing(store.connect(s.db_path)) as conn:
-        stats = asyncio.run(_llm(conn, s, batch=batch, limit=limit, workers=workers))
     typer.echo(stats)
 
 
@@ -300,9 +281,13 @@ def chats_list(
     lang = lang or s.known_lang
     with closing(store.connect(s.db_path)) as conn:
         rows = store.list_personal_words(conn, lang, status=status, limit=limit or -1)
+        reasons = store.personal_skip_reasons(conn, lang) if status == "skipped" else {}
     typer.echo(f"{'count':>6}  lemma")
     for r in rows:
-        typer.echo(f"{r['count']:>6}  {r['lemma']}")
+        typer.echo(
+            f"{r['count']:>6}  {r['lemma']}"
+            + (f"  [{reasons.get(r['lemma'], '')}]" if reasons else "")
+        )
     if not rows:
         typer.echo(f"(no personal words with status={status})")
 
@@ -318,7 +303,7 @@ def audit(sample: int = 15, prompt: str = ""):
         agent = build_agent(s, s.db_path, extra_prompt=prompt, audit=True)
         result = agent.run_sync(
             f"Audit {sample} cards using review_sample, fix clear defects, then report.",
-            deps=Deps(db_path=s.db_path, model_name=s.litellm_model or "unknown"),
+            deps=Deps(db_path=s.db_path, model_name=s.gemini_model),
             usage_limits=UsageLimits(request_limit=60),
         )
         typer.echo(result.output)

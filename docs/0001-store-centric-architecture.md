@@ -45,10 +45,9 @@ Pipeline stages, each a small module or verb:
    already in the store are skipped by unique lemma, so the worklist is
    incremental by construction. `free` cognates become typing-only cards
    instead of full cards.
-2. **Hints** (`parlance lexicon`, `parlance llm-hints`): translation candidates
-   for every lemma, from edition dictionaries and from a generative model
-   turned into a translation oracle. Hints are advisory grounding for
-   generation, never the curriculum.
+2. **Hints** (`parlance lexicon`): translation candidates
+   for every lemma from edition dictionaries. Hints are advisory grounding
+   for generation, never the curriculum.
 3. **Generate** (`parlance generate`): the agent takes worklist batches plus
    the pair profile plus hint suggestions, and writes validated
    `TranslationDraft` records: lemma, forms, 1–4 translation variants with

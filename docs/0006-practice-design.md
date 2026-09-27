@@ -12,9 +12,9 @@ from zero.
 
 ## What we tried first, and why it wasn't enough
 
-A gateway-based voice pipeline (whisper transcription, chat model, TTS) on
-the school gateway: workable text-only scaffolding, but half-duplex latency
-kills conversation feel, and the gateway serves no realtime voice model.
+A pipelined voice stack (speech-to-text, chat model, TTS): workable
+text-only scaffolding, but half-duplex latency kills conversation feel,
+and it offers no realtime voice model.
 
 A typed-first version of the drill to shake out session logic before audio.
 It found the real bugs cheap (turn discipline, transcription aggregation,
@@ -23,10 +23,10 @@ speech.
 
 ## What we built instead
 
-Two-provider split: the school gateway runs the batch content pipeline
-(unlimited-ish, private); Google Gemini 3.8 Live runs the realtime voice loop
-(voice-native, generous free tier; session content is synthetic language
-practice, non-sensitive by construction).
+One provider: the Gemini API runs both the batch content pipeline and the
+realtime voice loop (Gemini 3.8 Live, voice-native, generous free tier) —
+one API key for everything; session content is synthetic language
+practice, non-sensitive by construction.
 
 - **Drill flavor: situated simulation.** The coach sets a scene ("you walk
   into a shop and need…"), the learner attempts the target language or asks
@@ -81,8 +81,8 @@ practice, non-sensitive by construction).
 
 ## What it cost us
 
-- Sessions live and die with a hosted realtime API; the gateway stack stays
-  the fallback for anything batch, and voice has no offline mode.
+- Sessions live and die with a hosted realtime API; voice has no offline
+  mode.
 - Auto-VAD quality is room-dependent; tuning knobs exist but are empirical.
 
 ## Live API facts
@@ -91,17 +91,11 @@ practice, non-sensitive by construction).
   transcription, learner speech as input transcription — any plan for a
   separate speech-to-text step is obsolete on this path.
 - Text input works via `send_realtime_input(text=...)`; per-turn latency is
-  dominated by audio generation, so batch card generation stays on the
-  gateway and Live translations are consumed in-session.
+  dominated by audio generation, so Live is never a batch surface —
+  translations are consumed in-session only.
 - `session.receive()` yields a per-turn stream that ends at `turn_complete`
   and must be re-called; a single persistent read loop goes deaf after the
   first turn.
-- Spoken-JSON instructions (a numbered batch of words in, a JSON array of
-  translations out) are parseable through the output transcription and
-  ground the generative hint backfill.
-- Concurrent session count and daily quotas rate-limit bulk use: parallel
-  workers hold persistent sessions and back off on exhaustion instead of
-  churning connections.
 
 ## Code
 

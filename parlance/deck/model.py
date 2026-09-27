@@ -2,7 +2,7 @@
 
 Field order is frozen (hash-guarded in tests): Anki reimport updates by field
 position, so reordering silently corrupts decks. Changed fields mean a new
-MODEL_ID, not an edit (docs/0003).
+MODEL_ID, not an edit.
 
 Design: zinc-grey base with a single darker-green accent; inline lucide-style
 icons (stroke); the only pictograms are play / speed / warning.

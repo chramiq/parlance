@@ -1,10 +1,9 @@
 """Chat ingestion: parse -> gate -> accumulate, idempotent across exports.
 
-Fixtures mirror the probed Instagram DYI structure (see
-scripts/probe_instagram.py): participants include the owner, content strings
-carry Meta's double encoding, system templates appear as owner content.
-Owner detection needs several threads: the owner is the participant present
-in every one, everyone else only in their own.
+Fixtures mirror the real Instagram DYI structure: participants include the
+owner, content strings carry Meta's double encoding, system templates
+appear as owner content. Owner detection needs several threads: the owner
+is the participant present in every one, everyone else only in their own.
 """
 
 import json
