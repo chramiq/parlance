@@ -151,13 +151,16 @@ def build_realtime_model(s: Settings) -> GoogleRealtimeModel:
     """The Gemini Live model: API key, compression for long drills, auto-reconnect."""
     if not s.gemini_api_key:
         raise RuntimeError("GEMINI_API_KEY is required (see .env.example)")
+    settings = GoogleRealtimeModelSettings(
+        google_context_compression=ContextCompression(),
+        reconnect=ReconnectPolicy(),
+    )
+    if s.practice_voice:
+        settings["google_voice"] = s.practice_voice
     return GoogleRealtimeModel(
         s.gemini_live_model,
         provider=GoogleProvider(api_key=s.gemini_api_key),
-        settings=GoogleRealtimeModelSettings(
-            google_context_compression=ContextCompression(),
-            reconnect=ReconnectPolicy(),
-        ),
+        settings=settings,
     )
 
 
@@ -277,6 +280,16 @@ async def _request_summary(session, stats: dict, turn_q: asyncio.Queue[str]) -> 
             await turn_q.get()
     except TimeoutError:
         pass
+
+
+async def _stubborn(coro):
+    """Re-enter an awaitable across shutdown cancels: Ctrl+C under asyncio.run
+    cancels this task once and the delivery lands on the next await."""
+    while True:
+        try:
+            return await coro
+        except asyncio.CancelledError:
+            continue
 
 
 def _close_unjournaled(db_path: Path, session_id: int, stats: dict, transcript: Path) -> None:
@@ -437,17 +450,20 @@ async def run_practice_voice(settings, transcript_dir: Path | None = None) -> di
                 pump.cancel()
                 play.cancel()  # may leave the audio thread mid-write; harmless at teardown
                 if not stats["summary"]:
-                    # listen keeps consuming; poll the flag it maintains
+                    # Ctrl+C cancellation lands on the first await here; re-enter
+                    # each step and bound the dance by wall clock instead
+                    deadline = loop.time() + 60
                     try:
-                        async with asyncio.timeout(60):
-                            await session.send(
+                        await _stubborn(
+                            session.send(
                                 "The session is ending — call save_session_summary now "
                                 "with a short summary."
                             )
-                            while not stats["summary"]:
-                                await asyncio.sleep(0.1)
-                    except TimeoutError:
-                        pass
+                        )
+                        while loop.time() < deadline and not stats["summary"]:
+                            await _stubborn(asyncio.sleep(0.1))
+                    except Exception as e:  # noqa: BLE001 -- best-effort close; transcript-only is the floor
+                        print(f"[closing summary skipped: {type(e).__name__}]")
                 listen.cancel()
     _close_unjournaled(s.db_path, session_id, stats, transcript)
     return stats

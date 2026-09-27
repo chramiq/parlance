@@ -24,6 +24,8 @@ class Settings(BaseSettings):
     gemini_api_key: str | None = None
     gemini_model: str = "gemini-3.8-flash"
     gemini_live_model: str = "gemini-3.8-live"
+    # coach voice for Live practice; empty = the Live server's default voice
+    practice_voice: str = ""
 
     known_lang: str = "cs"
     target_lang: str = "pl"
