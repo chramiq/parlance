@@ -81,25 +81,38 @@ def load_gate(path: Path) -> tuple[dict[str, int], dict[str, str]]:
 
 
 def _find_owner(threads: list[dict]) -> str:
-    """The participant listed in every thread who also sends messages.
+    """The account holder across all threads.
 
-    Participants include the owner in these exports; everyone else appears
-    only in their own conversations.
+    Primary signal: the participant listed in every thread who also sends
+    messages. Threads the owner left (Facebook archived groups) drop them
+    from participants while keeping their history, so when no participant
+    qualifies, the owner is the sender covering the most threads; that
+    winner must be unique.
 
     Raises:
-        ValueError: when owner detection is ambiguous or empty.
+        ValueError: when neither signal identifies exactly one owner.
     """
     n = len(threads)
     part = Counter(_fix(p.get("name", "")) for t in threads for p in t.get("participants", []))
     senders = {_fix(m.get("sender_name", "")) for t in threads for m in t.get("messages", [])}
     candidates = [p for p, c in part.items() if c == n and p in senders]
-    if len(candidates) != 1:
-        raise ValueError(
-            f"owner detection failed: {len(candidates)} participants appear in all "
-            f"{n} threads and send messages; expected exactly one. Pass an export "
-            f"directory of a single account."
-        )
-    return candidates[0]
+    if len(candidates) == 1:
+        return candidates[0]
+    coverage = Counter(
+        name
+        for t in threads
+        for name in {_fix(m.get("sender_name", "")) for m in t.get("messages", [])}
+        if name
+    )
+    if not candidates and coverage:
+        top = coverage.most_common(2)
+        if (len(top) == 1 or top[0][1] > top[1][1]) and top[0][0] in senders:
+            return top[0][0]
+    raise ValueError(
+        f"owner detection failed: {len(candidates)} participants appear in all "
+        f"{n} threads and send messages, and no sender uniquely covers the most "
+        f"threads; expected exactly one. Pass an export directory of a single account."
+    )
 
 
 def _msg_hash(thread: dict, m: dict, content: str) -> str:

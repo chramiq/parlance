@@ -172,3 +172,21 @@ def test_gate_is_language_agnostic(tmp_path):
     lemma = simplemma.lemmatize("ďaleký", lang="sk")
     rows = {r["lemma"]: r["count"] for r in store.list_personal_words(conn, "sk", limit=-1)}
     assert rows.get(lemma) == 1
+
+
+def test_owner_detection_left_group_threads(db, wordlist, tmp_path):
+    """Facebook archived groups the owner left keep their history but drop the
+    owner from participants; the most-covered sender resolves the owner."""
+    import simplemma
+
+    root = tmp_path / "fb"
+    write_thread(root, [OWNER, OTHER], [msg(OWNER, "mám"), msg(OTHER, "mas")], "t1")
+    write_thread(root, [OWNER, THIRD], [msg(OWNER, "tam")], "t2")
+    # left group: owner absent from participants, history remains
+    write_thread(root, [OTHER, THIRD], [msg(OWNER, "díky"), msg(THIRD, "mas")], "t3")
+    conn = store.connect(db)
+    meta.import_chats(conn, [root], "cs", wordlist)
+    rows = {r["lemma"]: r["count"] for r in store.list_personal_words(conn, "cs", limit=-1)}
+    for w in ("mám", "tam", "díky"):
+        assert rows.get(simplemma.lemmatize(w, lang="cs")) == 1
+    assert simplemma.lemmatize("mas", lang="cs") not in rows
