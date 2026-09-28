@@ -158,7 +158,7 @@ def test_mojibake_fix_roundtrip():
 
 
 def test_gate_is_language_agnostic(tmp_path):
-    """Letters outside the Czech alphabet still tokenize; the gate wordlist, not
+    """Letters outside the Czech alphabet tokenize; the gate wordlist, not
     the tokenizer, decides the language (Slovak stream here)."""
     import simplemma
 

@@ -186,9 +186,10 @@ def lemma_model() -> genanki.Model:
 def cognate_model() -> genanki.Model:
     """Free-cognate lemma note type: typing only, no recognition card.
 
-    Recognition suppression is structural (a separate model), not the
-    blank-front trick: Anki's required-fields rule is conjunctive on
-    non-empty values and cannot express 'generate when field is empty'.
+    Recognition suppression is structural: this is a separate model with
+    only the typing template. Anki's required-fields rule is conjunctive
+    on non-empty values and cannot express 'generate when field is empty',
+    so a shared model cannot do it.
     """
     base = lemma_model()
     return genanki.Model(

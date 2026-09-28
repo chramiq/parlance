@@ -79,11 +79,10 @@ def build_pairs(
 def build_words(conn: sqlite3.Connection, lang: str, cache_dir: Path) -> dict:
     """Validation lexicon for a language: edition headwords + frequency-list surface forms.
 
-    Headwords alone miss real inflected usage; the full frequency list
-    closes that hole (the 50k head misses rare-but-real words such as
-    literary verbs). Forms below FORMS_FLOOR corpus hits are dropped: the
-    tail is subtitle noise, and a gloss rarer than that is not a word the
-    learner recognizes anyway.
+    Headwords alone miss inflected usage, so surface forms from the full
+    frequency list join them. Forms below FORMS_FLOOR corpus hits are
+    dropped: the tail is subtitle noise, and a gloss rarer than that is
+    not a word the learner recognizes anyway.
     """
     words: set[str] = set()
     with gzip.open(_extract(lang, cache_dir, None), "rt", encoding="utf-8") as f:

@@ -1,10 +1,10 @@
 """Pre-pass: personal words -> target lemmas. Dictionary-first, LLM fills gaps.
 
 The card-writing agent stays deck-agnostic: it receives target-language
-lemmas either way. This module owns the known->target decision (and the
-skip-with-reason verdicts that replace a manual review step), materializing
-chosen words into the shared lemma table so both decks dedupe against each
-other through the status system.
+lemmas either way. This module owns the known->target decision and the
+skip-with-reason verdicts, materializing chosen words into the shared
+lemma table so both decks dedupe against each other through the status
+system.
 """
 
 import json

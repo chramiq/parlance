@@ -110,6 +110,10 @@ uv run parlance <command>
   references ADRs the other way either — no `see docs/NNNN` in comments or
   docstrings.
 - Docstrings and comments describe only how the code works NOW.
+- Hard rule: a docstring states what the method, function or class does
+  as it works right now, concisely. Never how it worked before, what
+  happened during development, how the code got here, or what changed —
+  that history belongs to git and the ADRs.
 - No Markdown in docstrings or comments: no backticks, no emphasis, no
   links. Identifiers are written bare.
 - Hard rule: never reference documents, probes, scripts, dates, or
