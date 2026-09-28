@@ -45,3 +45,4 @@ answers don't work, and the system built instead.
 | 0007 | [Personal wordlist from chat exports: word-bag ingestion behind a public-frequency gate](0007-personal-wordlist-ingestion.md) |
 | 0008 | [The personal deck: a mode flag over the shared pipeline, not a second pipeline](0008-personal-deck-mode.md) |
 | 0009 | [Anki review ingestion: desktop Anki as a read-only relay](0009-anki-review-ingestion.md) |
+| 0010 | [Listen cards: ear training gated on review history](0010-listen-cards.md) |

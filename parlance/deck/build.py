@@ -14,7 +14,7 @@ import genanki
 from ..config import Settings
 from ..store import connect
 from ..tts import render_lines
-from .model import cognate_model, lemma_model
+from .model import cognate_model, lemma_model, listen_model
 
 COMMON_DECK_ID = 1715500005
 PERSONAL_DECK_ID = 1715500004
@@ -80,6 +80,9 @@ async def build(s: Settings, limit: int | None = None) -> tuple[Path, dict]:
         if limit:
             query += f" LIMIT {int(limit)}"
         rows = list(conn.execute(query))
+        # ear training follows learning: listen cards exist only for words
+        # with a recorded Anki review
+        reviewed = {r["lemma"] for r in conn.execute("SELECT DISTINCT lemma FROM anki_reviews")}
     if not rows:
         raise RuntimeError("no generated cards in the store; run generate first")
 
@@ -90,6 +93,7 @@ async def build(s: Settings, limit: int | None = None) -> tuple[Path, dict]:
 
     model = lemma_model()
     cognate = cognate_model()
+    listen = listen_model()
     decks: dict[int, genanki.Deck] = {}
     root = s.target_lang.upper()
     package_decks = []
@@ -130,6 +134,15 @@ async def build(s: Settings, limit: int | None = None) -> tuple[Path, dict]:
             tags=["personal"] if r["kind"] == "personal" else [],
         )
         decks[deck_id].add_note(note)
+        if r["lemma"] in reviewed:
+            decks[deck_id].add_note(
+                genanki.Note(
+                    model=listen,
+                    fields=field_values,
+                    guid=f"listen:{r['lemma']}",
+                    due=r["freq_rank"],
+                )
+            )
 
     out_dir = s.data_dir / "out"
     out_dir.mkdir(parents=True, exist_ok=True)
@@ -142,7 +155,9 @@ async def build(s: Settings, limit: int | None = None) -> tuple[Path, dict]:
     counts = {
         "notes": len(rows),
         "personal": sum(1 for r in rows if r["kind"] == "personal"),
-        "cards": sum(1 if r["cognate_class"] == "free" else 2 for r in rows),
+        "cards": sum(1 if r["cognate_class"] == "free" else 2 for r in rows)
+        + sum(1 for r in rows if r["lemma"] in reviewed),
+        "listen": sum(1 for r in rows if r["lemma"] in reviewed),
         "media": len(package.media_files),
         "out": str(out_path),
     }

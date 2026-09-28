@@ -92,6 +92,12 @@ Anki; later rebuilds reimport as in-place updates. `var/out/preview.html`
 renders one card through every template for a quick look without
 importing.
 
+Words with a recorded Anki review also get a listen card — the word's
+audio only, no text: ear training that exists only for words already in
+learning. Reviews reach the store through `parlance anki-sync` (or
+automatically at practice session open); the next deck build mints the
+listen cards, and reimport adds them.
+
 ### 6. Learn from your own messages (optional)
 
 ```bash

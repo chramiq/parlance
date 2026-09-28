@@ -121,6 +121,7 @@ async def test_build_apkg_structure(tmp_path, monkeypatch):
         "notes": 2,
         "personal": 0,
         "cards": 3,  # system is a free cognate -> Recognition card suppressed
+        "listen": 0,  # no recorded reviews in this fixture
         "media": 4,  # 2 texts x 2 notes, one learner-slow rate each
         "out": str(out_path),
     }
@@ -152,3 +153,28 @@ def test_audio_name_deterministic_and_voice_and_rate_scoped():
     assert audio_name("Kocham cię.", "v", "+0%") == audio_name("Kocham cię.", "v", "+0%")
     assert audio_name("Kocham cię.", "v", "+0%") != audio_name("Kocham cię.", "v", "-20%")
     assert audio_name("Kocham cię.", "a", "+0%") != audio_name("Kocham cię.", "b", "+0%")
+
+
+def test_listen_cards_only_for_reviewed_words(tmp_path):
+    """A word with a recorded Anki review gets a listen note; unreviewed words do not."""
+    import asyncio
+
+    db, _ = seeded_db(tmp_path)
+    with store.connect(db) as conn:
+        stored, unknown = store.record_anki_reviews(conn, ["kochać", "neexistuje"], "2026-09-28")
+    assert stored == 1 and unknown == ["neexistuje"]
+    s = Settings(data_dir=tmp_path, tts_voice=VOICE)
+    out_path, counts = asyncio.run(deckbuild.build(s))
+    z = zipfile.ZipFile(out_path)
+    import tempfile
+
+    with tempfile.TemporaryDirectory() as td:
+        z.extract("collection.anki2", td)
+        con = sqlite3.connect(f"{td}/collection.anki2")
+        guids = {r[0] for r in con.execute("SELECT guid FROM notes")}
+        assert "listen:kochać" in guids
+        assert "listen:system" not in guids
+        decks = json.loads(con.execute("SELECT decks FROM col").fetchone()[0])
+        names = {d["name"] for d in decks.values()}
+        assert "PL::COMMON" in names
+    assert counts["listen"] == 1

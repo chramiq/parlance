@@ -12,6 +12,7 @@ import genanki
 
 MODEL_ID = 1717924001
 COGNATE_MODEL_ID = 1717924002
+LISTEN_MODEL_ID = 1717924003
 
 FIELDS = [
     "Lemma",
@@ -105,6 +106,11 @@ _TYPE_A = (
     '<div class="type-row">{{type:Lemma}}</div></div>' + _BACK_OUTER
 )
 
+_LISTEN_Q = (
+    '<div class="outer centered l-front"><div class="audio-row">{{WordAudioFile}}</div></div>'
+)
+
+
 _CSS = (
     """
 /* palette: zinc greys, one darker-green accent */
@@ -135,6 +141,15 @@ _CSS = (
 .replay-button, .replaybutton { display: none !important; }
 .audio-hidden { visibility: hidden; position: absolute; height: 0; width: 0; overflow: hidden; }
 .audio-hidden .replay-button, .audio-hidden .replaybutton { display: inline !important; }
+/* the listen front is the one face where the native replay button is the
+   interface: a big round play button, audio auto-plays on show */
+.l-front { min-height: 200px; }
+.l-front .replay-button, .l-front .replaybutton { display: inline-flex !important; align-items: center; justify-content: center; width: 74px; height: 74px; padding: 18px; border: 1px solid #2a2c31; border-radius: 999px; color: #a1a1aa; background: #17181b; cursor: pointer; }
+.l-front .replay-button:active, .l-front .replaybutton:active { color: """
+    + _ACCENT
+    + """; border-color: """
+    + _ACCENT
+    + """; transform: scale(.94); }
 
 .example { margin-top: 22px; padding: 14px 16px; background: #131417; border-left: 2px solid #2a2c31; border-radius: 0 8px 8px 0; }
 .ex-t { font-size: 19px; color: #f4f4f5; line-height: 1.45; }
@@ -197,5 +212,22 @@ def cognate_model() -> genanki.Model:
         "parlance-lemma-cognate",
         fields=base.fields,
         templates=[base.templates[1]],
+        css=base.css,
+    )
+
+
+def listen_model() -> genanki.Model:
+    """Audio-recognition note type: hear the word, recall the meaning.
+
+    The front carries only the word audio (auto-plays on show, native
+    replay button styled as the interface); the back is the standard full
+    card. Emitted only for words with recorded Anki reviews.
+    """
+    base = lemma_model()
+    return genanki.Model(
+        LISTEN_MODEL_ID,
+        "parlance-listen",
+        fields=base.fields,
+        templates=[{"name": "Listen", "qfmt": _LISTEN_Q, "afmt": _BACK_OUTER}],
         css=base.css,
     )
