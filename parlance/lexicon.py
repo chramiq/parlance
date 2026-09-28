@@ -18,9 +18,10 @@ from collections.abc import Iterator
 from pathlib import Path
 
 from . import store
-from .worklist import SOURCE_URL_TEMPLATE
+from .worklist import SOURCE_FULL_URL_TEMPLATE
 
 KAIKKI_URL = "https://kaikki.org/dictionary/downloads/{lang}/{lang}-extract.jsonl.gz"
+FORMS_FLOOR = 10
 
 
 def _extract(lang: str, cache_dir: Path, source_dir: Path | None) -> Path:
@@ -78,8 +79,11 @@ def build_pairs(
 def build_words(conn: sqlite3.Connection, lang: str, cache_dir: Path) -> dict:
     """Validation lexicon for a language: edition headwords + frequency-list surface forms.
 
-    Headwords alone miss real inflected usage (~21% of legit glosses in the
-    measured hint table); the 50k forms union closes that hole.
+    Headwords alone miss real inflected usage; the full frequency list
+    closes that hole (the 50k head misses rare-but-real words such as
+    literary verbs). Forms below FORMS_FLOOR corpus hits are dropped: the
+    tail is subtitle noise, and a gloss rarer than that is not a word the
+    learner recognizes anyway.
     """
     words: set[str] = set()
     with gzip.open(_extract(lang, cache_dir, None), "rt", encoding="utf-8") as f:
@@ -87,14 +91,14 @@ def build_words(conn: sqlite3.Connection, lang: str, cache_dir: Path) -> dict:
             w = (json.loads(line).get("word") or "").strip().lower()
             if w:
                 words.add(w)
-    forms_path = cache_dir / f"{lang}_50k.txt"
+    forms_path = cache_dir / f"{lang}_full.txt"
     if not forms_path.exists():
         cache_dir.mkdir(parents=True, exist_ok=True)
-        urllib.request.urlretrieve(SOURCE_URL_TEMPLATE.format(lang=lang), forms_path)
+        urllib.request.urlretrieve(SOURCE_FULL_URL_TEMPLATE.format(lang=lang), forms_path)
     with open(forms_path, encoding="utf-8") as f:
         for line in f:
             parts = line.split()
-            if parts:
+            if len(parts) == 2 and parts[1].isdigit() and int(parts[1]) >= FORMS_FLOOR:
                 words.add(parts[0].strip().lower())
     written = store.replace_words(conn, lang, words)
-    return {"words_written": written, "sources": ["kaikki-headwords", "50k-forms"]}
+    return {"words_written": written, "sources": ["kaikki-headwords", "full-forms"]}

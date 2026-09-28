@@ -17,6 +17,7 @@ import simplemma
 from . import store
 
 SOURCE_URL_TEMPLATE = "https://raw.githubusercontent.com/hermitdave/FrequencyWords/master/content/2018/{lang}/{lang}_50k.txt"
+SOURCE_FULL_URL_TEMPLATE = "https://raw.githubusercontent.com/hermitdave/FrequencyWords/master/content/2018/{lang}/{lang}_full.txt"
 MAX_FORMS_PER_LEMMA = 20
 
 
