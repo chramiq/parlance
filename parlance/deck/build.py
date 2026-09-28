@@ -32,33 +32,41 @@ def _meta(payload: dict) -> str:
     return meta
 
 
-def _write_preview(model, fields: list[str], css: str, path: Path) -> None:
-    """Render every template front+back for one real note into a standalone HTML file.
+def _write_preview(models: list, fields: list[str], css: str, path: Path) -> None:
+    """Render every template front+back of the note types for one real note.
 
     An approximation of the card faces for eyeball review without importing
-    into Anki (browser render, not a webview; sound tags stripped).
+    into Anki (browser render, not a webview). The word-audio field is
+    replaced by a play-button stand-in: the browser cannot play Anki
+    sounds, and it is the entire front of the listen card.
     """
     import chevron
 
-    from .model import FIELDS
+    from .model import _ICON_PLAY, FIELDS
 
     data = dict(zip(FIELDS, fields))
     data["type:Lemma"] = f'<div id="typeans">{data["Lemma"]}</div>'
     import re
 
-    for k in ("WordAudioFile", "ExAudioFile"):
+    data["WordAudioFile"] = (
+        '<span style="display:inline-flex;align-items:center;justify-content:center;'
+        "width:74px;height:74px;border:1px solid #2a2c31;border-radius:999px;"
+        f'color:#a1a1aa;background:#17181b">{_ICON_PLAY}</span>'
+    )
+    for k in ("ExAudioFile",):
         data[k] = re.sub(r"\[sound:[^\]]+\]", "", data[k])
     parts = [
         '<!doctype html><meta charset="utf-8"><title>parlance card preview</title>',
         f"<style>{css}</style>",
         "<body class='card' style='background:#0e0e10'>",
     ]
-    for label, tmpl in [("FRONT", "qfmt"), ("BACK", "afmt")]:
-        for t in model.templates:
-            parts.append(
-                f"<hr style='border-color:#2a2c31'><div class='tag'>{t['name']} / {label}</div>"
-            )
-            parts.append(chevron.render(t[tmpl], data))
+    for m in models:
+        for label, tmpl in [("FRONT", "qfmt"), ("BACK", "afmt")]:
+            for t in m.templates:
+                parts.append(
+                    f"<hr style='border-color:#2a2c31'><div class='tag'>{t['name']} / {label}</div>"
+                )
+                parts.append(chevron.render(t[tmpl], data))
     parts.append("</body>")
     path.write_text("\n".join(parts), encoding="utf-8")
 
@@ -151,7 +159,7 @@ async def build(s: Settings, limit: int | None = None) -> tuple[Path, dict]:
     package.media_files = [str(audio_dir / audio[t]) for t in texts]
     package.write_to_file(str(out_path))
     if first_fields is not None:
-        _write_preview(model, first_fields, model.css, out_dir / "preview.html")
+        _write_preview([model, listen], first_fields, model.css, out_dir / "preview.html")
     counts = {
         "notes": len(rows),
         "personal": sum(1 for r in rows if r["kind"] == "personal"),
