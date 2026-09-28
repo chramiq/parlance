@@ -149,20 +149,39 @@ with the collection), in deck options for `<TARGET>`:
 
 | Section | Setting | Value |
 |---|---|---|
-| Daily Limits | New cards/day | ~25 (= ~12 new words, 2 cards each) |
+| Daily Limits | New cards/day | 10–25 (your pace; ~2 cards per word) |
+| Daily Limits | Maximum reviews/day | ≥ 10x your new limit — see pitfalls |
 | New Cards | Learning steps | `1m 10m` |
 | Display Order | New card gather order | Deck |
 | Display Order | New card sort order | Card type, then order gathered |
 | Display Order | New/review order | Show after reviews |
 | Display Order | Review sort order | Ascending retrievability |
 | Burying | Bury new/review/interday siblings | all ON |
+| Audio | Don't play audio automatically | OFF (default) |
 | FSRS | Enable + desired retention | ON, 0.90 |
 
-Give `PERSONAL` its own new-cards/day limit (deck options → This deck)
-so the frequency core cannot starve your own words. After a few hundred
-reviews, run FSRS parameter optimization, then roughly monthly. Press
-Hard only for recalled-with-effort, never for forgotten — FSRS treats
-Hard as a pass.
+Then give each subdeck its own daily new-card slots (deck options →
+Daily Limits → **This deck**), because subdeck gathering is alphabetical
+and `COMMON` sorts before `PERSONAL` — with a shared limit, the frequency
+core would starve the personal deck for months:
+
+| Deck | New cards/day |
+|---|---|
+| `<TARGET>` (preset, the total) | 12 |
+| `<TARGET>::COMMON` | 10 |
+| `<TARGET>::PERSONAL` | 2 |
+
+Behavioral rules that keep the scheduler healthy:
+
+- **Never cap reviews below steady state.** Every new card becomes
+  several future reviews; hiding them does not make them go away, and
+  once the review cap is reached new cards stop appearing too (they
+  respect the review limit). If you fall behind, pause new cards — do
+  not lower the review cap.
+- **Press Hard only for recalled-with-effort, never for forgotten** —
+  FSRS treats Hard as a pass, and misuse silently inflates intervals.
+- Run FSRS parameter optimization after a few hundred reviews, then
+  roughly monthly. Before that, defaults are better than noise.
 
 ## Docs
 
