@@ -150,6 +150,11 @@ _CSS = (
     + """; border-color: """
     + _ACCENT
     + """; transform: scale(.94); }
+/* native tap feedback is a square overlay that ignores border-radius;
+ kill it and let the :active styles be the only click feedback */
+.card * { -webkit-tap-highlight-color: transparent; }
+.abtn, .l-front .replay-button, .l-front .replaybutton {
+  -webkit-user-select: none; user-select: none; touch-action: manipulation; outline: none; }
 
 .example { margin-top: 22px; padding: 14px 16px; background: #131417; border-left: 2px solid #2a2c31; border-radius: 0 8px 8px 0; }
 .ex-t { font-size: 19px; color: #f4f4f5; line-height: 1.45; }
