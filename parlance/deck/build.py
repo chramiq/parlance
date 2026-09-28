@@ -11,26 +11,13 @@ from pathlib import Path
 
 import genanki
 
-from ..agent import LANG_NAMES
 from ..config import Settings
 from ..store import connect
 from ..tts import render_lines
 from .model import cognate_model, lemma_model
 
-# (low, high, suffix) with stable deck ids
-BANDS = [
-    (1, 500, "001-Top500", 1715500001),
-    (501, 1500, "010-501-1500", 1715500002),
-    (1501, None, "020-1501plus", 1715500003),
-]
+COMMON_DECK_ID = 1715500005
 PERSONAL_DECK_ID = 1715500004
-
-
-def _band(rank: int) -> tuple[str, int]:
-    for low, high, suffix, deck_id in BANDS:
-        if rank >= low and (high is None or rank <= high):
-            return suffix, deck_id
-    return BANDS[-1][2], BANDS[-1][3]
 
 
 def _variants(payload: dict, preferred_idx: int) -> str:
@@ -104,15 +91,15 @@ async def build(s: Settings, limit: int | None = None) -> tuple[Path, dict]:
     model = lemma_model()
     cognate = cognate_model()
     decks: dict[int, genanki.Deck] = {}
-    root = LANG_NAMES.get(s.target_lang, s.target_lang)
+    root = s.target_lang.upper()
     package_decks = []
     first_fields = None
     for r in rows:
         payload = json.loads(r["payload"])
         if r["kind"] == "personal":
-            suffix, deck_id = "personal", PERSONAL_DECK_ID
+            suffix, deck_id = "PERSONAL", PERSONAL_DECK_ID
         else:
-            suffix, deck_id = _band(r["freq_rank"])
+            suffix, deck_id = "COMMON", COMMON_DECK_ID
         if deck_id not in decks:
             decks[deck_id] = genanki.Deck(deck_id, f"{root}::{suffix}")
             package_decks.append(decks[deck_id])

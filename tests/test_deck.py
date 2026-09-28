@@ -145,7 +145,7 @@ async def test_build_apkg_structure(tmp_path, monkeypatch):
         assert len(s_fields) == len(FIELDS)
         decks = json.loads(con.execute("SELECT decks FROM col").fetchone()[0])
         names = {d["name"] for d in decks.values()}
-        assert any("001-Top500" in n for n in names)
+        assert "PL::COMMON" in names
 
 
 def test_audio_name_deterministic_and_voice_and_rate_scoped():

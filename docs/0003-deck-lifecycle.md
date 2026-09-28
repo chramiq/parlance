@@ -37,10 +37,11 @@ model ID on purpose, never edits fields in place.
 `Note(due=priority_position)` sets the new-card position at build time; we
 combine it with gather order "Deck", sort "card type, then gathered", and
 bury-siblings on (one note spawns 2–3 cards; without burying they camp
-together in a session). Decks
-are emitted as `<TargetLang>::NNN-<theme>` subdecks from a single Package so theme
-grouping, per-subdeck daily new-card limits, and gathering "top subdecks
-first" are all stock Anki behavior.
+together in a session). The
+package emits two subdecks under an uppercase target-language root,
+`<TARGET>::COMMON` and `<TARGET>::PERSONAL`; new-card pacing is a single
+deck-options number in Anki, not subdeck structure, so frequency bands are
+gone.
 
 **Retirement is data, not import magic.** .apkg cannot delete, by design of
 the format. So: `curate retire <lemma>` flips state in the store; the deck

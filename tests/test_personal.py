@@ -361,7 +361,7 @@ async def test_build_emits_personal_subdeck(tmp_path, monkeypatch):
         assert "lemma:kochać" in guids and "personal:koleś" in guids
         col_decks = json.loads(con.execute("SELECT decks FROM col").fetchone()[0])
         deck_names = {d["name"] for d in col_decks.values()}
-        assert "Polish::personal" in deck_names
+        assert "PL::PERSONAL" in deck_names
 
 
 def test_chats_import_multi_lang(tmp_path, monkeypatch):
