@@ -13,6 +13,7 @@ import genanki
 MODEL_ID = 1717924001
 COGNATE_MODEL_ID = 1717924002
 LISTEN_MODEL_ID = 1717924003
+EXTEND_MODEL_ID = 1717924004
 
 FIELDS = [
     "Lemma",
@@ -26,6 +27,8 @@ FIELDS = [
     "WordAudioFile",
     "ExAudioFile",
 ]
+
+EXTEND_FIELDS = FIELDS + ["Excludes"]
 
 _ACCENT = "#15803d"
 
@@ -101,6 +104,13 @@ _TYPE_Q = (
     '<div class="type-row">{{type:Lemma}}</div></div>'
 )
 
+_EXTEND_Q = (
+    '<div class="outer centered"><div class="tag">napisz</div>'
+    '<div class="gloss">{{Gloss}}</div>'
+    '<div class="exclude">{{Excludes}}</div>'
+    '<div class="type-row">{{type:Lemma}}</div></div>'
+)
+
 _TYPE_A = (
     '<div class="outer centered"><div class="tag">napisz</div>'
     '<div class="type-row">{{type:Lemma}}</div></div>' + _BACK_OUTER
@@ -162,6 +172,7 @@ _CSS = (
 .ex-k + .audio-row { margin-top: 10px; }
 
 .muted { color: #71717a; font-size: 13px; margin-top: 12px; }
+.exclude { color: #71717a; font-size: 17px; margin: 10px 0 0; text-decoration: line-through; }
 .warn { margin-top: 16px; padding: 11px 13px; background: #131417; border-left: 2px solid """
     + _ACCENT
     + """; border-radius: 0 8px 8px 0; color: #d4d4d8; font-size: 14px; }
@@ -218,6 +229,22 @@ def cognate_model() -> genanki.Model:
         fields=base.fields,
         templates=[base.templates[1]],
         css=base.css,
+    )
+
+
+def extend_model() -> genanki.Model:
+    """Sibling note type: typed answer with the wrong siblings struck out.
+
+    Siblings share their gloss with a more frequent word; the front shows
+    the gloss plus the other group members struck through, so the prompt
+    names which variant is wanted.
+    """
+    return genanki.Model(
+        EXTEND_MODEL_ID,
+        "parlance-lemma-extend",
+        fields=[{"name": f} for f in EXTEND_FIELDS],
+        templates=[{"name": "Type it", "qfmt": _EXTEND_Q, "afmt": _TYPE_A}],
+        css=_CSS,
     )
 
 

@@ -14,10 +14,11 @@ import genanki
 from ..config import Settings
 from ..store import connect
 from ..tts import render_lines
-from .model import cognate_model, lemma_model, listen_model
+from .model import cognate_model, extend_model, lemma_model, listen_model
 
 COMMON_DECK_ID = 1715500005
 PERSONAL_DECK_ID = 1715500004
+EXTEND_DECK_ID = 1715500006
 
 
 def _variants(payload: dict, preferred_idx: int) -> str:
@@ -32,7 +33,7 @@ def _meta(payload: dict) -> str:
     return meta
 
 
-def _write_preview(models: list, fields: list[str], css: str, path: Path) -> None:
+def _write_preview(models: list, fields: list[str], css: str, path: Path, field_names=None) -> None:
     """Render every template front+back of the note types for one real note.
 
     An approximation of the card faces for eyeball review without importing
@@ -44,7 +45,7 @@ def _write_preview(models: list, fields: list[str], css: str, path: Path) -> Non
 
     from .model import _ICON_PLAY, FIELDS
 
-    data = dict(zip(FIELDS, fields))
+    data = dict(zip(field_names or FIELDS, fields))
     data["type:Lemma"] = f'<div id="typeans">{data["Lemma"]}</div>'
     import re
 
@@ -91,6 +92,19 @@ async def build(s: Settings, limit: int | None = None) -> tuple[Path, dict]:
         # ear training follows learning: listen cards exist only for words
         # with a recorded Anki review
         reviewed = {r["lemma"] for r in conn.execute("SELECT DISTINCT lemma FROM anki_reviews")}
+        # gloss collisions become routing: the most frequent word per gloss
+        # (rows are freq_rank-ordered) keeps the bare gloss in the main
+        # decks; siblings go to the extend deck, where the other group
+        # members are struck through on the typed prompt
+        groups: dict[str, list] = {}
+        for r in rows:
+            groups.setdefault(r["preferred_gloss"], []).append(r)
+        excluded_by = {
+            g["lemma"]: " · ".join(x["lemma"] for x in group if x is not g)
+            for group in groups.values()
+            if len(group) > 1
+            for g in group[1:]
+        }
     if not rows:
         raise RuntimeError("no generated cards in the store; run generate first")
 
@@ -101,14 +115,19 @@ async def build(s: Settings, limit: int | None = None) -> tuple[Path, dict]:
 
     model = lemma_model()
     cognate = cognate_model()
+    extend = extend_model()
     listen = listen_model()
     decks: dict[int, genanki.Deck] = {}
     root = s.target_lang.upper()
     package_decks = []
     first_fields = None
+    first_extend_fields = None
     for r in rows:
         payload = json.loads(r["payload"])
-        if r["kind"] == "personal":
+        excluded = excluded_by.get(r["lemma"])
+        if excluded is not None:
+            suffix, deck_id = "EXTEND", EXTEND_DECK_ID
+        elif r["kind"] == "personal":
             suffix, deck_id = "PERSONAL", PERSONAL_DECK_ID
         else:
             suffix, deck_id = "COMMON", COMMON_DECK_ID
@@ -131,16 +150,30 @@ async def build(s: Settings, limit: int | None = None) -> tuple[Path, dict]:
         ]
         if first_fields is None:
             first_fields = field_values
-        note = genanki.Note(
-            model=cognate if r["cognate_class"] == "free" else model,
-            fields=field_values,
-            # personal notes get their own guid prefix: kinds can never share
-            # a lemma (status dedup), but a collision would silently corrupt
-            # reimports -- a visible duplicate is the recoverable failure
-            guid=f"{r['kind']}:{r['lemma']}",
-            due=r["freq_rank"],
-            tags=["personal"] if r["kind"] == "personal" else [],
-        )
+        # the extend model takes precedence over the cognate model: the
+        # struck-through exclusions are what disambiguate the prompt
+        if excluded is not None:
+            extend_values = field_values + [excluded]
+            if first_extend_fields is None:
+                first_extend_fields = extend_values
+            note = genanki.Note(
+                model=extend,
+                fields=extend_values,
+                guid=f"{r['kind']}:{r['lemma']}",
+                due=r["freq_rank"],
+                tags=["personal"] if r["kind"] == "personal" else [],
+            )
+        else:
+            note = genanki.Note(
+                model=cognate if r["cognate_class"] == "free" else model,
+                fields=field_values,
+                # personal notes get their own guid prefix: kinds can never share
+                # a lemma (status dedup), but a collision would silently corrupt
+                # reimports -- a visible duplicate is the recoverable failure
+                guid=f"{r['kind']}:{r['lemma']}",
+                due=r["freq_rank"],
+                tags=["personal"] if r["kind"] == "personal" else [],
+            )
         decks[deck_id].add_note(note)
         if r["lemma"] in reviewed:
             decks[deck_id].add_note(
@@ -160,10 +193,24 @@ async def build(s: Settings, limit: int | None = None) -> tuple[Path, dict]:
     package.write_to_file(str(out_path))
     if first_fields is not None:
         _write_preview([model, listen], first_fields, model.css, out_dir / "preview.html")
+    if first_extend_fields is not None:
+        from .model import EXTEND_FIELDS
+
+        _write_preview(
+            [extend],
+            first_extend_fields,
+            extend.css,
+            out_dir / "preview-extend.html",
+            field_names=EXTEND_FIELDS,
+        )
     counts = {
         "notes": len(rows),
         "personal": sum(1 for r in rows if r["kind"] == "personal"),
-        "cards": sum(1 if r["cognate_class"] == "free" else 2 for r in rows)
+        "extend": len(excluded_by),
+        "cards": sum(
+            1 if excluded_by.get(r["lemma"]) is not None or r["cognate_class"] == "free" else 2
+            for r in rows
+        )
         + sum(1 for r in rows if r["lemma"] in reviewed),
         "listen": sum(1 for r in rows if r["lemma"] in reviewed),
         "media": len(package.media_files),
