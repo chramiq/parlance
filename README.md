@@ -24,6 +24,9 @@ generation and voice practice. Batch generation needs a billing-linked
 key; the free tier's daily limits are too small. Expect roughly one US
 cent per generated card.
 
+Also set `TTS_VOICE` to an edge-tts voice for your target language; the
+deck build refuses to emit a silent deck without one.
+
 ## The loop
 
 Each phase writes to the store (`var/parlance.db`); every later phase
@@ -57,9 +60,14 @@ Both are cached in `var/lexicon/`; reruns are offline.
 uv run parlance init
 ```
 
-A one-time LLM conversation about you (register, interests, style)
-produces the language-pair profile that seeds every card's sentence
-style. Refine it any time, without a model:
+```bash
+uv run parlance init --note "a fact about you worth baking into card style"
+```
+
+A one-time LLM profile capture (register, interests, style) produces the
+language-pair profile that seeds every card's sentence style, gloss
+conventions, and the target-language tags printed on card fronts. Refine
+it any time, without a model:
 
 ```bash
 uv run parlance profile show
@@ -86,9 +94,12 @@ uv run parlance deck build
 ```
 
 Renders TTS audio (edge-tts, cached by content hash) and emits
-`var/out/pl-vocab.apkg` — one subdeck per source: `<TARGET>::COMMON`
-(frequency core) and `<TARGET>::PERSONAL` (your words). Import it into
-Anki; later rebuilds reimport as in-place updates. `var/out/preview.html`
+`var/out/<target>-vocab.apkg` with three subdecks: `<TARGET>::COMMON`
+(frequency core), `<TARGET>::PERSONAL` (your words), and `<TARGET>::EXTEND`
+(synonym siblings: when two words share a translation, the more frequent
+one keeps the bare-gloss typing prompt, and the sibling lands here with
+the wrong answers struck through — see ADR-0011). Import it into Anki;
+later rebuilds reimport as in-place updates. `var/out/preview.html`
 renders one card through every template for a quick look without
 importing.
 
@@ -174,6 +185,7 @@ core would starve the personal deck for months:
 | `<TARGET>` (preset, the total) | 12 |
 | `<TARGET>::COMMON` | 10 |
 | `<TARGET>::PERSONAL` | 2 |
+| `<TARGET>::EXTEND` | 0–2 (expansion lane; 0 parks it until you open it deliberately) |
 
 Behavioral rules that keep the scheduler healthy:
 
@@ -191,3 +203,16 @@ Behavioral rules that keep the scheduler healthy:
 
 `AGENTS.md` — development rules and repo layout. `docs/` — architecture
 decision records: the why behind every design choice.
+
+## Data sources
+
+The vocab pipeline downloads public data at runtime; none of it ships in
+this repository:
+
+- Frequency wordlists —
+  [hermitdave/FrequencyWords](https://github.com/hermitdave/FrequencyWords)
+  (subtitle frequencies, CC BY-SA 3.0)
+- Dictionary editions — [kaikki.org](https://kaikki.org) wiktextract
+  dumps (Wiktionary, CC BY-SA 3.0)
+- Chat vocabulary comes from the user's own Meta DIY exports and never
+  leaves `var/` (gitignored).

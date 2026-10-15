@@ -2,6 +2,9 @@
 name = "parlance"
 version = "0.1.0"
 description = "A way to actually learn a language."
+readme = "README.md"
+license = "MIT"
+authors = [{ name = "chramiq" }]
 requires-python = ">=3.13"
 dependencies = [
     "pydantic-ai>=2",
