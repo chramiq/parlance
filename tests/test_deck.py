@@ -259,3 +259,21 @@ def test_listen_cards_only_for_reviewed_words(tmp_path):
         names = {d["name"] for d in decks.values()}
         assert "PL::COMMON" in names
     assert counts["listen"] == 1
+
+
+async def test_card_tags_come_from_pair_profile(tmp_path, monkeypatch):
+    """Card-front tags render from the stored pair profile, not from the note model."""
+    db, conn = seeded_db(tmp_path)
+    store.meta_set(conn, "pair_profile", {"card_tag_discover": "słowo", "card_tag_type": "napisz"})
+    out_path, _ = await _build(db, tmp_path, monkeypatch)
+    import tempfile
+    import zipfile
+
+    z = zipfile.ZipFile(out_path)
+    with tempfile.TemporaryDirectory() as td:
+        z.extract("collection.anki2", td)
+        con = sqlite3.connect(f"{td}/collection.anki2")
+        models = json.loads(con.execute("SELECT models FROM col").fetchone()[0])
+    qfmt = {t["name"]: t["qfmt"] for m in models.values() for t in m["tmpls"]}
+    assert 'class="tag">słowo' in qfmt["Discover"]
+    assert 'class="tag">napisz' in qfmt["Type it"]

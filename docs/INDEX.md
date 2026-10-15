@@ -47,3 +47,4 @@ answers don't work, and the system built instead.
 | 0009 | [Anki review ingestion: desktop Anki as a read-only relay](0009-anki-review-ingestion.md) |
 | 0010 | [Listen cards: ear training gated on review history](0010-listen-cards.md) |
 | 0011 | [The extend deck: gloss collisions become routing, not defects](0011-extend-deck.md) |
+| 0012 | [Pair portability: card text from the profile, one store per pair, picked chat templates](0012-pair-portability.md) |

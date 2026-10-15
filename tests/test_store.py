@@ -55,3 +55,23 @@ def test_set_status_validates_and_skips_noops(tmp_path):
     before = conn.execute("SELECT COUNT(*) n FROM changes").fetchone()["n"]
     assert store.set_status(conn, "być", "worklist")  # already worklist: no-op
     assert conn.execute("SELECT COUNT(*) n FROM changes").fetchone()["n"] == before
+
+
+def test_pair_stamp_refuses_foreign_pair(tmp_path, monkeypatch):
+    """One store serves one pair: .env pointing at a different pair fails loudly."""
+    import sqlite3
+
+    from parlance.config import Settings
+
+    monkeypatch.setattr(
+        "parlance.config.get_settings", lambda: Settings(known_lang="cs", target_lang="pl")
+    )
+    db = tmp_path / "t.db"
+    conn = store.connect(db)
+    assert store.meta_get(conn, "language_pair") == {"pair": "cs>pl"}
+    conn.close()
+    raw = sqlite3.connect(db)
+    raw.execute("UPDATE meta SET value=? WHERE key='language_pair'", ('{"pair": "de>en"}',))
+    raw.commit()
+    with pytest.raises(RuntimeError, match="belongs to de>en"):
+        store.connect(db)

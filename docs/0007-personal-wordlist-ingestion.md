@@ -37,11 +37,13 @@ A word-bag with a structural privacy guarantee:
   `message_*.json` discovery across export layouts; the owner is the
   participant listed in every thread; message content carries Meta's double
   encoding (UTF-8 bytes JSON-escaped as Latin-1) repaired by a latin-1
-  round-trip; localized system templates ("Posíláte přílohu.") are
-  exact-match dropped; diacritic-less texting ("mam", "mas") is restored
-  against the gate list before lemmatizing, because bare simplemma
-  mis-lemmatizes diacritic-less forms into wrong words ("mam" → "mámit",
-  not "mít").
+  round-trip; localized system templates (Meta writes "attachment sent"
+  or "call ended" as message content, repeated identically) are detected
+  by exact-content repetition and exact-match dropped from a stop list
+  the owner picks through `chats templates`; diacritic-less texting
+  ("mam", "mas") is restored against the gate list before lemmatizing,
+  because bare simplemma mis-lemmatizes diacritic-less forms into wrong
+  words ("mam" → "mámit", not "mít").
 - **Idempotent accumulation**: each message is hashed
   (thread_path|sender|timestamp|content) into `chat_seen` keyed by
   (language, hash). Re-importing an export changes nothing; importing a
@@ -70,8 +72,9 @@ ranked by the user's own usage frequency.
   overlap the English top-2000, mostly Czech homographs ("ten", "no", "do")
   but some genuine English ("you", "call") — needs review-step judgment,
   not automatic dropping.
-- The system-string denylist is locale- and provenance-specific and must
-  grow with each new export vintage.
+- The template stop list is per-export work: run `chats templates` on
+  each new export before importing it, or robot UI strings in that
+  export's UI language leak into the personal wordlist.
 - `chat_seen` stores hashes, not content: debugging a miscount requires the
   original export still on disk.
 

@@ -21,14 +21,6 @@ import simplemma
 from .. import store
 from ..worklist import SOURCE_URL_TEMPLATE
 
-# Localized template strings Meta writes as message content. Matched after
-# the mojibake fix; extend when a new export vintage/provenance adds templates.
-SYSTEM_STRINGS = {
-    "Posíláte přílohu.",
-    "Audio call ended",
-    "You started an audio call",
-}
-
 # any unicode letters; the gate wordlist is the language filter, so the
 # tokenizer itself must not assume an alphabet
 TOKEN_RE = re.compile(r"[^\W\d_]+")
@@ -128,6 +120,48 @@ def _tokens(text: str) -> list[str]:
     return [t for t in TOKEN_RE.findall(text) if len(t) > 1]
 
 
+def template_candidates(
+    conn, roots: list[Path], lang: str, wordlist_path: Path, floor: int = 20
+) -> list[tuple[str, int]]:
+    """Repeated owner-authored contents worth a stop-list decision.
+
+    Meta writes localized template strings ("attachment sent", "call
+    ended") as message content; unlike the owner's own messages they
+    repeat identically, so an exact-content repeat count is the stable
+    signal without baking any language into code. The owner picks stops
+    from the candidates (chats templates); import then skips them.
+
+    Contents at or above floor that repeat as multi-token phrases with at
+    least one gate-passing token are proposed, ranked by count; already-
+    stopped contents are not proposed again.
+    """
+    ensure_wordlist(wordlist_path, lang)
+    public, restore = load_gate(wordlist_path)
+    counts: Counter[str] = Counter()
+    for root in roots:
+        files = sorted(root.glob("**/message_*.json"))
+        if not files:
+            raise ValueError(f"no message_*.json under {root} (is this an extracted Meta export?)")
+        threads = [json.loads(p.read_text(encoding="utf-8")) for p in files]
+        owner = _find_owner(threads)
+        for thread in threads:
+            for m in thread.get("messages", []):
+                if _fix(m.get("sender_name", "")) != owner:
+                    continue
+                content = m.get("content")
+                if not content or m.get("is_unsent"):
+                    continue
+                counts[_fix(content)] += 1
+    return [
+        (c, n)
+        for c, n in counts.most_common()
+        if n >= floor
+        and c not in set(store.chat_stops(conn))
+        and len(toks := _tokens(c)) >= 2
+        and any(_gate(t, public, restore) for t in toks)
+    ]
+
+
 def _gate(form: str, public: dict[str, int], restore: dict[str, str]) -> str | None:
     """Restore diacritics, then keep the form only if it is a public word."""
     if form.isascii():
@@ -150,12 +184,13 @@ def import_chats(conn, roots: list[Path], lang: str, wordlist_path: Path) -> dic
         wordlist_path: Public frequency list for lang, downloaded when missing.
 
     Returns:
-        Counts: files, new_messages, skipped_seen, system_strings, tokens,
+        Counts: files, new_messages, skipped_seen, stopped, tokens,
         forms_kept, lemmas_new, lemmas_updated.
     """
     ensure_wordlist(wordlist_path, lang)
     public, restore = load_gate(wordlist_path)
     seen = store.chat_seen_hashes(conn, lang)
+    stops = set(store.chat_stops(conn))
     lemma_counts: Counter[str] = Counter()
     new_hashes: list[str] = []
     stats = {
@@ -164,7 +199,7 @@ def import_chats(conn, roots: list[Path], lang: str, wordlist_path: Path) -> dic
             "files",
             "new_messages",
             "skipped_seen",
-            "system_strings",
+            "stopped",
             "tokens",
             "forms_kept",
             "lemmas_new",
@@ -187,8 +222,8 @@ def import_chats(conn, roots: list[Path], lang: str, wordlist_path: Path) -> dic
                 if not content or m.get("is_unsent"):
                     continue
                 content = _fix(content)
-                if content in SYSTEM_STRINGS:
-                    stats["system_strings"] += 1
+                if content in stops:
+                    stats["stopped"] += 1
                     continue
                 h = _msg_hash(thread, m, content)
                 if h in seen:

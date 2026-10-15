@@ -15,7 +15,12 @@ from http.client import HTTPException
 
 # genanki model names (deck/model.py). Scoping the search to them keeps
 # non-parlance decks out of practice targets in any language pair.
-NOTE_MODELS = ("parlance-lemma", "parlance-lemma-cognate")
+NOTE_MODELS = (
+    "parlance-lemma",
+    "parlance-lemma-cognate",
+    "parlance-lemma-extend",
+    "parlance-listen",
+)
 
 # AnkiWeb sync: near-instant when up to date, but the first sync after
 # login can take minutes. The query itself is always local and fast.

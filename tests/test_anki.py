@@ -55,6 +55,7 @@ def test_fetch_reviewed_today_syncs_then_reads_lemmas():
     assert actions == ["sync", "notesInfo"]
     query = requests[1]["params"]["query"]
     assert 'note:"parlance-lemma"' in query and 'note:"parlance-lemma-cognate"' in query
+    assert 'note:"parlance-lemma-extend"' in query and 'note:"parlance-listen"' in query
     assert "rated:1" in query
 
 

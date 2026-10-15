@@ -12,7 +12,7 @@ from pathlib import Path
 import genanki
 
 from ..config import Settings
-from ..store import connect
+from ..store import connect, meta_get
 from ..tts import render_lines
 from .model import cognate_model, extend_model, lemma_model, listen_model
 
@@ -92,6 +92,8 @@ async def build(s: Settings, limit: int | None = None) -> tuple[Path, dict]:
         # ear training follows learning: listen cards exist only for words
         # with a recorded Anki review
         reviewed = {r["lemma"] for r in conn.execute("SELECT DISTINCT lemma FROM anki_reviews")}
+        # card-front tags are target-language text owned by the pair profile
+        profile = meta_get(conn, "pair_profile") or {}
         # gloss collisions become routing: the most frequent word per gloss
         # (rows are freq_rank-ordered) keeps the bare gloss in the main
         # decks; siblings go to the extend deck, where the other group
@@ -113,9 +115,10 @@ async def build(s: Settings, limit: int | None = None) -> tuple[Path, dict]:
     audio_dir = s.data_dir / "audio"
     audio = await render_lines(texts, s.tts_voice, audio_dir, s.tts_rate)
 
-    model = lemma_model()
-    cognate = cognate_model()
-    extend = extend_model()
+    tag_type = profile.get("card_tag_type", "")
+    model = lemma_model(profile.get("card_tag_discover", ""), tag_type)
+    cognate = cognate_model(tag_type)
+    extend = extend_model(tag_type)
     listen = listen_model()
     decks: dict[int, genanki.Deck] = {}
     root = s.target_lang.upper()

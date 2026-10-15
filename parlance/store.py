@@ -147,7 +147,30 @@ def connect(db_path: Path) -> sqlite3.Connection:
         )
     conn.executescript(_ADDITIVE)
     conn.commit()
+    _check_pair(conn, db_path)
     return conn
+
+
+def _check_pair(conn: sqlite3.Connection, db_path: Path) -> None:
+    """Stamp the store with the configured pair on first use; refuse a foreign pair.
+
+    lemmas, content and the review journal carry no language column: one store
+    serves one pair. A mismatch means the pair was switched on an existing
+    store, which would silently mix two target languages.
+    """
+    from .config import get_settings
+
+    s = get_settings()
+    pair = f"{s.known_lang}>{s.target_lang}"
+    stored = meta_get(conn, "language_pair")
+    if stored is None:
+        meta_set(conn, "language_pair", {"pair": pair})
+        conn.commit()
+    elif stored.get("pair") != pair:
+        raise RuntimeError(
+            f"this store belongs to {stored.get('pair')}, but .env configures {pair}: "
+            f"one store serves one pair; use a fresh DATA_DIR (or delete {db_path}) to switch"
+        )
 
 
 def add_lemmas(conn: sqlite3.Connection, rows: Iterable[dict]) -> tuple[int, int]:
@@ -572,6 +595,17 @@ def meta_get(conn: sqlite3.Connection, key: str) -> dict | None:
     """Fetch a meta document, or None."""
     row = conn.execute("SELECT value FROM meta WHERE key=?", (key,)).fetchone()
     return json.loads(row["value"]) if row else None
+
+
+def chat_stops(conn: sqlite3.Connection) -> list[str]:
+    """Exact message contents the chat importer skips: robot templates the owner picked."""
+    doc = meta_get(conn, "chat_stops")
+    return list((doc or {}).get("stops", []))
+
+
+def save_chat_stops(conn: sqlite3.Connection, stops: list[str]) -> None:
+    """Replace the chat stop list."""
+    meta_set(conn, "chat_stops", {"stops": stops})
 
 
 def chat_seen_hashes(conn: sqlite3.Connection, lang: str) -> set[str]:

@@ -116,6 +116,14 @@ class PairProfile(BaseModel):
     notes: str = Field(
         default="", description="Anything else a translator for this pair should know"
     )
+    card_tag_discover: str = Field(
+        default="",
+        description="Card-front tag for the recognition card, in the TARGET language (local equivalent of the label 'word'); empty omits the tag",
+    )
+    card_tag_type: str = Field(
+        default="",
+        description="Card-front tag for the typed card, in the TARGET language (local imperative like 'write'); empty omits the tag",
+    )
 
 
 @dataclass
@@ -159,9 +167,9 @@ def validate_cloze(ex: Example, corpus_forms: list[str]) -> None:
 def unknown_gloss_token(conn: sqlite3.Connection, lang: str, gloss: str) -> str | None:
     """First token of the gloss missing from the language's validation lexicon, if any.
 
-    Anti-fabrication tier: invented words ('úteka', 'prda', 'dovozit') are not
-    in any lexicon; real but obscure/gloss-style choices pass because they are
-    words. Every token of a multiword gloss must check out ('je mi líto').
+    Anti-fabrication tier: invented words are not in any lexicon; real but
+    obscure or gloss-style choices pass because they are words. Every token
+    of a multiword gloss must check out.
     """
     for tok in (t.strip('.,!?"()') for t in gloss.lower().split()):
         if tok and not tok.isdigit() and not store.lexicon_contains(conn, lang, tok):

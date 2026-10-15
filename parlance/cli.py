@@ -340,6 +340,57 @@ def chats_import(
             typer.echo(f"[{lg}] {store.personal_words_stats(conn, lg)}")
 
 
+@chats_app.command("templates")
+def chats_templates(
+    paths: Annotated[list[Path], typer.Argument(help="Extracted Meta export directories.")],
+    lang: Annotated[
+        str, typer.Option("--lang", help="Gate language (default: KNOWN_LANG from .env).")
+    ] = "",
+    floor: int = typer.Option(20, help="Minimum repeats for a content to be proposed."),
+):
+    """Propose repeated message contents for the stop list: robot UI templates.
+
+    Meta writes localized template strings as message content; they repeat
+    identically, so exact-content repetition is the signal. Picks are stored
+    and every following chats import skips them. Run this on each new export
+    before importing it.
+    """
+    from .chats import meta
+
+    s = get_settings()
+    lg = lang or s.known_lang
+    with closing(store.connect(s.db_path)) as conn:
+        candidates = meta.template_candidates(
+            conn,
+            [Path(p) for p in paths],
+            lg,
+            s.data_dir / "wordlist" / f"{lg}_50k.txt",
+            floor,
+        )
+        existing = store.chat_stops(conn)
+        if candidates:
+            typer.echo("repeated contents (count | text):")
+            for i, (c, n) in enumerate(candidates, 1):
+                typer.echo(f"{i:>3}. {n:>6}  {c}")
+            pick = typer.prompt("Exclude which numbers? comma-separated, empty = none", default="")
+            chosen: list[str] = []
+            for tok in pick.replace(",", " ").split():
+                idx = int(tok)
+                if not 1 <= idx <= len(candidates):
+                    raise typer.BadParameter(f"{idx} is not a listed number")
+                chosen.append(candidates[idx - 1][0])
+            stops = list(dict.fromkeys(existing + chosen))
+            if stops != existing:
+                store.save_chat_stops(conn, stops)
+            typer.echo(f"stop list: {len(stops)} contents")
+        else:
+            typer.echo(
+                f"no candidates (floor={floor}); stop list unchanged: {len(existing)} contents"
+            )
+        for c in store.chat_stops(conn):
+            typer.echo(f"  stopped: {c}")
+
+
 @chats_app.command("list")
 def chats_list(
     limit: int = typer.Option(50, help="Rows to show (0 = all)."),

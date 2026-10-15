@@ -101,6 +101,7 @@ listen cards, and reimport adds them.
 ### 6. Learn from your own messages (optional)
 
 ```bash
+uv run parlance chats templates <export-dir> --lang cs   # pick robot templates to stop
 uv run parlance chats import <export-dir> --lang cs
 uv run parlance chats import <export-dir> --lang en
 uv run parlance generate --deck personal --words 100 --count 20
@@ -110,10 +111,13 @@ Meta DIY exports (Instagram, Facebook) work directly. The privacy model
 is structural: only single words that also appear in a public frequency
 list of the language ever reach the store — sentences are never stored,
 names and handles drop out. One export can be imported under several
-source languages; each gets its own gate. The pre-pass maps your words
-to target lemmas (dictionary first, LLM for gaps), skipping function
-words and chat noise with a recorded reason. `--words N` caps the
-pre-pass to the N most-used still-unmapped words per run.
+source languages; each gets its own gate. `chats templates` proposes
+repeated robot contents (attachment/call strings Meta writes as message
+content); picked ones are skipped by every later import. The pre-pass
+maps your words to target lemmas (dictionary first, LLM for gaps),
+skipping function words and chat noise with a recorded reason.
+`--words N` caps the pre-pass to the N most-used still-unmapped words
+per run.
 
 ### 7. Review and audit
 

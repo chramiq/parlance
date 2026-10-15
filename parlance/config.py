@@ -29,7 +29,8 @@ class Settings(BaseSettings):
 
     known_lang: str = "cs"
     target_lang: str = "pl"
-    tts_voice: str = "pl-PL-ZofiaNeural"
+    # target-language voice, set per language in .env
+    tts_voice: str = ""
     tts_rate: str = "-25%"
     chat_self_name: str = ""
 

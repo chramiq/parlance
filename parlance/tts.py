@@ -32,6 +32,10 @@ async def _save_with_retry(text: str, voice: str, rate: str, path: Path) -> None
 
 async def render_lines(texts: list[str], voice: str, out_dir: Path, rate: str) -> dict[str, str]:
     """Render every text once at the given rate; return {text: basename}. Cached files are skipped."""
+    if not voice:
+        raise RuntimeError(
+            "TTS_VOICE is not set; a target-language voice is required (see .env.example)"
+        )
     out_dir.mkdir(parents=True, exist_ok=True)
     todo = [t for t in texts if not (out_dir / audio_name(t, voice, rate)).exists()]
     for i, text in enumerate(todo, 1):

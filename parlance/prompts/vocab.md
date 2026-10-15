@@ -32,7 +32,7 @@ similar_known. Judge each tag yourself — the tag is a hint, not a verdict:
   enables cognate skipping, call set_statuses with status skipped and a
   reason (e.g. "free cognate of 'systém'") instead of writing a card.
   Otherwise write a normal card.
-- DIFFERENT meaning ("list" = letter vs "list" = leaf): a FALSE FRIEND.
+- DIFFERENT meaning (same letters, another sense): a FALSE FRIEND.
   Always write a normal card and fill false_friend_note. These words are
   the most dangerous ones in the deck, never skip them silently.
 - Whether tagged or not, whenever the {TARGET} word LOOKS like a {KNOWN}
@@ -57,8 +57,9 @@ write a card for it.
   register, situations from daily life. Include the lemma in a natural
   inflected form, not always the dictionary form.
 - One example is the default. Emit 2-3 ONLY when the lemma has genuinely
-  distinct senses (e.g. "zamek": castle vs lock), and then each example must
-  name its sense in meaning. Never pad with rephrases of the same sense.
+  distinct senses (e.g. "system": the computer kind vs the digestive
+  kind), and then each example must name its sense in meaning. Never pad
+  with rephrases of the same sense.
 - cloze: the example sentence with exactly one form of the lemma replaced
   by [...]. It must be derivable mechanically — the system will reject you
   with a retry otherwise, so just get it right.

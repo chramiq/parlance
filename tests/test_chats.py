@@ -80,10 +80,11 @@ def test_import_gates_and_counts(db: Path, wordlist: Path, tmp_path: Path):
     )
     write_thread(root, [OWNER, THIRD], [msg(OWNER, "diky", ts=7)], "t2")
     conn = store.connect(db)
+    store.save_chat_stops(conn, ["Posíláte přílohu."])
     stats = meta.import_chats(conn, [root], "cs", wordlist)
 
-    assert stats["new_messages"] == 4  # owner text messages minus the template
-    assert stats["system_strings"] == 1
+    assert stats["new_messages"] == 4  # owner text messages minus the stopped template
+    assert stats["stopped"] == 1
     lemma = {r["lemma"]: r["count"] for r in store.list_personal_words(conn, "cs", limit=-1)}
     # mas->máš->mít, mam->mám->mít, tam, diky->díky (x2), chuť (from mojibake)
     assert lemma["mít"] == 2
@@ -190,3 +191,28 @@ def test_owner_detection_left_group_threads(db, wordlist, tmp_path):
     for w in ("mám", "tam", "díky"):
         assert rows.get(simplemma.lemmatize(w, lang="cs")) == 1
     assert simplemma.lemmatize("mas", lang="cs") not in rows
+
+
+def test_template_candidates_and_picked_stops(tmp_path: Path):
+    """Repeated robot contents are proposed; picked ones are skipped on import."""
+    root = tmp_path / "fb"
+    template = "You sent an attachment."
+    write_thread(
+        root,
+        [OWNER, OTHER],
+        [msg(OWNER, template, ts=i) for i in range(25)] + [msg(OWNER, "call me", ts=26)],
+        "t1",
+    )
+    wordlist = tmp_path / "en_50k.txt"
+    wordlist.write_text(
+        "you 100\nsent 90\nan 80\nattachment 70\ncall 60\nme 50\n", encoding="utf-8"
+    )
+    db = tmp_path / "t.db"
+    conn = store.connect(db)
+    assert meta.template_candidates(conn, [root], "en", wordlist) == [(template, 25)]
+
+    store.save_chat_stops(conn, [template])
+    stats = meta.import_chats(conn, [root], "en", wordlist)
+    assert stats["stopped"] == 25
+    lemma = {r["lemma"] for r in store.list_personal_words(conn, "en", limit=-1)}
+    assert "attachment" not in lemma and "call" in lemma

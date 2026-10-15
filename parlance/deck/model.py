@@ -91,25 +91,33 @@ _BACK_INNER = (
 
 _BACK_OUTER = '<div class="outer">' + _BACK_INNER + "</div>"
 
-_DISCOVER_Q = (
-    '<div class="outer centered"><div class="tag">słowo</div>'
-    '<div class="lemma">{{Lemma}}</div>'
-    '<div class="audio-row">' + _audio_btns("WordAudioFile", "wa") + "</div></div>" + _PLAY_JS
-)
 
-_TYPE_Q = (
-    '<div class="outer centered"><div class="tag">napisz</div>'
-    '<div class="gloss">{{Gloss}}</div>'
-    '{{#Meta}}<div class="muted">{{Meta}}</div>{{/Meta}}'
-    '<div class="type-row">{{type:Lemma}}</div></div>'
-)
+def _tag(text: str) -> str:
+    return f'<div class="tag">{text}</div>' if text else ""
 
-_EXTEND_Q = (
-    '<div class="outer centered"><div class="tag">napisz</div>'
-    '<div class="gloss">{{Gloss}}</div>'
-    '<div class="exclude">{{Excludes}}</div>'
-    '<div class="type-row">{{type:Lemma}}</div></div>'
-)
+
+def _discover_q(tag: str) -> str:
+    return (
+        '<div class="outer centered">' + _tag(tag) + '<div class="lemma">{{Lemma}}</div>'
+        '<div class="audio-row">' + _audio_btns("WordAudioFile", "wa") + "</div></div>" + _PLAY_JS
+    )
+
+
+def _type_q(tag: str) -> str:
+    return (
+        '<div class="outer centered">' + _tag(tag) + '<div class="gloss">{{Gloss}}</div>'
+        '{{#Meta}}<div class="muted">{{Meta}}</div>{{/Meta}}'
+        '<div class="type-row">{{type:Lemma}}</div></div>'
+    )
+
+
+def _extend_q(tag: str) -> str:
+    return (
+        '<div class="outer centered">' + _tag(tag) + '<div class="gloss">{{Gloss}}</div>'
+        '<div class="exclude">{{Excludes}}</div>'
+        '<div class="type-row">{{type:Lemma}}</div></div>'
+    )
+
 
 _TYPE_A = (
     '<div class="outer centered"><div class="tag">napisz</div>'
@@ -197,24 +205,26 @@ code#typeans { display: block !important; }
 """
 )
 
-_TEMPLATES = [
-    {"name": "Discover", "qfmt": _DISCOVER_Q, "afmt": _BACK_OUTER},
-    {"name": "Type it", "qfmt": _TYPE_Q, "afmt": _TYPE_A},
-]
 
+def lemma_model(tag_discover: str = "", tag_type: str = "") -> genanki.Model:
+    """The full lemma note type (Discover + Type it).
 
-def lemma_model() -> genanki.Model:
-    """The full lemma note type (Discover + Type it)."""
+    The front tags are target-language text from the pair profile; empty
+    omits the tag.
+    """
     return genanki.Model(
         MODEL_ID,
         "parlance-lemma",
         fields=[{"name": f} for f in FIELDS],
-        templates=_TEMPLATES,
+        templates=[
+            {"name": "Discover", "qfmt": _discover_q(tag_discover), "afmt": _BACK_OUTER},
+            {"name": "Type it", "qfmt": _type_q(tag_type), "afmt": _TYPE_A},
+        ],
         css=_CSS,
     )
 
 
-def cognate_model() -> genanki.Model:
+def cognate_model(tag_type: str = "") -> genanki.Model:
     """Free-cognate lemma note type: typing only, no recognition card.
 
     Recognition suppression is structural: this is a separate model with
@@ -222,7 +232,7 @@ def cognate_model() -> genanki.Model:
     on non-empty values and cannot express 'generate when field is empty',
     so a shared model cannot do it.
     """
-    base = lemma_model()
+    base = lemma_model(tag_type=tag_type)
     return genanki.Model(
         COGNATE_MODEL_ID,
         "parlance-lemma-cognate",
@@ -232,7 +242,7 @@ def cognate_model() -> genanki.Model:
     )
 
 
-def extend_model() -> genanki.Model:
+def extend_model(tag_type: str = "") -> genanki.Model:
     """Sibling note type: typed answer with the wrong siblings struck out.
 
     Siblings share their gloss with a more frequent word; the front shows
@@ -243,7 +253,7 @@ def extend_model() -> genanki.Model:
         EXTEND_MODEL_ID,
         "parlance-lemma-extend",
         fields=[{"name": f} for f in EXTEND_FIELDS],
-        templates=[{"name": "Type it", "qfmt": _EXTEND_Q, "afmt": _TYPE_A}],
+        templates=[{"name": "Type it", "qfmt": _extend_q(tag_type), "afmt": _TYPE_A}],
         css=_CSS,
     )
 
